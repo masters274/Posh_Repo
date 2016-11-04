@@ -96,7 +96,7 @@ Function Test-ModuleLoaded {
     Param (
         [Parameter(Mandatory=$true,HelpMessage='String array of module names')]
         [String[]]$RequiredModules,
-        [boolean]$Quiet
+        [Switch]$Quiet
     ) 
     
     Begin {
