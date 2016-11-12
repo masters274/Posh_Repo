@@ -35,14 +35,14 @@ Param
     [Parameter(Mandatory=$true,
         HelpMessage='ServiceTag of Dell device',
         Position=1)]
-    [Alias('st')]
+    [Alias('st','s')]
     [String[]]$ServiceTag,
 
     
     [Parameter(Mandatory=$true,
         HelpMessage='API key from Dell TechDirect',
         Position=2)]
-    [Alias('ak','api')]
+    [Alias('ak','api','a')]
     [String]$ApiKey
 )
 
