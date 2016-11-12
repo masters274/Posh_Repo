@@ -1,4 +1,5 @@
-﻿<#
+﻿
+<#
         .SYNOPSIS
         Get warranty and support information about Dell systems.
 
@@ -14,7 +15,7 @@
         Requires that you have a valid API key from TechDirect for warranty lookup.
 
         .LINK
-        https://github.com/masters274
+        https://github.com/masters274/Powershell_Stuff/tree/master/Scripts/Inventory
 
         .INPUTS
         Accepts a string value for API key and a string or array of strings for the ServiceTag parameter
@@ -32,20 +33,24 @@
 Param 
 (
     [Parameter(Mandatory=$true,
-            HelpMessage='ServiceTag of Dell device',
-    Position=1)]
+        HelpMessage='ServiceTag of Dell device',
+        Position=1)]
     [Alias('st')]
     [String[]]$ServiceTag,
 
+    
     [Parameter(Mandatory=$true,
-            HelpMessage='API key from Dell TechDirect',
-    Position=2)]
+        HelpMessage='API key from Dell TechDirect',
+        Position=2)]
     [Alias('ak','api')]
-    [String]$ApiKey 
+    [String]$ApiKey
 )
 
 Begin 
 {
+    $scriptVersion = 'Dell Support Info Grabber version 0.1'
+    
+    Write-Output -InputObject $scriptVersion
     # Check for requirements
     Try 
     {
@@ -133,7 +138,10 @@ Process
                           
             $objBuilder |
              Add-Member -MemberType NoteProperty -Name 'ShipDate' -Value (
-                '{0}' -f $xmlContent.AssetSummaryDTO.AssetSummaryResponse.AssetHeaderData.ShipDate
+                '{0}' -f $(
+                    Get-Date -Date $xmlContent.AssetSummaryDTO.AssetSummaryResponse.AssetHeaderData.ShipDate `
+                    -UFormat '%Y-%m-%d'
+                )
             )             
             
             # Check if system has extended or initial warranty
@@ -167,7 +175,7 @@ Process
             
             $objBuilder |
              Add-Member -MemberType NoteProperty -Name 'SupportEndDate' -Value (
-                '{0}' -f $(Get-Date -Date ($dtSupportEndDate) -UFormat '%Y%m%d')
+                '{0}' -f $(Get-Date -Date ($dtSupportEndDate) -UFormat '%Y-%m-%d')
             )
             
             $objBuilder |
