@@ -21,7 +21,7 @@
         Accepts a string value for API key and a string or array of strings for the ServiceTag parameter
 
         .OUTPUTS
-        Provides PSObject with system information for each service tag.
+        Provides PSObject with system information for each service tag. 
 #>
 
 <#
