@@ -26,6 +26,14 @@
 
 <#
         COMPLETE: Change output to PSObject as default - 11/11/2016
+
+        VERSION INFO:
+            
+            11/14/2016:        
+                0.2 -   Fixed mapping issues for LOB & Description
+                    -   Added a switch param to use the sandbox environment. Default is production
+                    -   Reversed if statement
+                  
 #>
 
 
@@ -33,22 +41,25 @@
 Param 
 (
     [Parameter(Mandatory=$true,
-        HelpMessage='ServiceTag of Dell device',
+            HelpMessage='ServiceTag of Dell device',
         Position=1)]
     [Alias('st')]
     [String[]]$ServiceTag,
 
-    
     [Parameter(Mandatory=$true,
         HelpMessage='API key from Dell TechDirect',
         Position=2)]
     [Alias('ak','api')]
-    [String]$ApiKey
+    [String]$ApiKey,
+
+    [Parameter(HelpMessage='Use Dell sandbox?')]
+    [Switch]$Dev
+  
 )
 
 Begin 
 {
-    $scriptVersion = 'Dell Support Info Grabber version 0.1'
+    $scriptVersion = 'Dell Support Info Grabber version 0.2'
     
     Write-Output -InputObject $scriptVersion
     # Check for requirements
@@ -72,7 +83,17 @@ Process
 {
     Write-Debug -Message 'Processing the script...'
     # Variables
-    $strBaseUri = 'https://sandbox.api.dell.com/support/assetinfo/v4/'
+    if ($Dev) 
+    {
+        $strDomainName = 'sandbox.api.dell.com'
+    }
+    
+    Else 
+    {
+        $strDomainName = 'api.dell.com'
+    }
+    
+    $strBaseUri = ('https://{0}/support/assetinfo/v4/' -f $strDomainName)
     $arrayMethods = ('GetAssetHeader','GetAssetWarranty','GetAssetSummary','GetCodeMapping')
     $strContentType = 'Application/xml'
     $objReportData = @()
@@ -99,12 +120,7 @@ Process
             Write-Error -Message ('Something went wrong connecting to {0}' -f $strBaseUri)
         }
     
-        If ($wrev.Count -gt 0) 
-        {
-        
-        }
-    
-        Else 
+        If (!($wrev.Count -gt 0)) 
         {
             [xml]$xmlContent = $rawRequest.Content 
         
@@ -128,12 +144,12 @@ Process
              
             $objBuilder |
              Add-Member -MemberType NoteProperty -Name 'LOB' -Value (
-                '{0}' -f $xmlContent.AssetSummaryDTO.AssetSummaryResponse.AssetHeaderData.CustomerNumber
+                '{0}' -f $xmlContent.AssetSummaryDTO.AssetSummaryResponse.ProductHeaderData.LOB
             )
              
             $objBuilder |
              Add-Member -MemberType NoteProperty -Name 'ModelDescription' -Value (
-                '{0}' -f $xmlContent.AssetSummaryDTO.AssetSummaryResponse.ProductHeaderData.LOB
+                '{0}' -f $xmlContent.AssetSummaryDTO.AssetSummaryResponse.ProductHeaderData.SystemDescription
              )
                           
             $objBuilder |
@@ -200,6 +216,7 @@ Process
             
             $objReportData += $objBuilder
         }
+    
     }
     
     Return $objReportData
