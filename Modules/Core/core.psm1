@@ -1,7 +1,7 @@
 Function Invoke-DebugIt {
     <#
             .SYNOPSIS
-            Better option for printing debug information.
+            A more visually dynamic option for printing debug information.
 
             .DESCRIPTION
             Quick function to print custom debug information with complex formatting.
@@ -98,25 +98,23 @@ Function Test-ModuleLoaded {
         [String[]]$RequiredModules,
         [Switch]$Quiet
     ) 
+
     
-    Begin {
-        
+    Process {
         # Variables
         $loadedModules = Get-Module
         $availableModules = Get-Module -ListAvailable
         [int]$failedModules = 0
         [System.Collections.ArrayList]$missingModules = @()
         $arraryRequiredModules = $RequiredModules
-    }
-    
-    Process {
+        
         # Loop thru all module requirements
         foreach ($module in $arraryRequiredModules) {
         
-            if ($loadedModules -contains $module) {
+            if ($loadedModules.Name -contains $module) {
                 $true | Out-Null 
         
-            } elseif ($availableModules -ccontains $module) {
+            } elseif ($availableModules.Name -ccontains $module) {
                 Import-Module -Name $module
         
             } else {
@@ -187,7 +185,7 @@ Function Invoke-VariableBaseLine {
     
     Process {
         if ($Clean) {
-            Compare-Object -ReferenceObject $($baselineLocalVariables.Name) -DifferenceObject 
+            Compare-Object -ReferenceObject $($baselineLocalVariables.Name) -DifferenceObject `
             $((Get-Variable -Scope 0).Name) |
             Where-Object { $_.SideIndicator -eq '=>'} |
             ForEach-Object { 
@@ -204,11 +202,11 @@ Function Invoke-VariableBaseLine {
             Remove-Variable -Name baselineLocalVariables -ErrorAction SilentlyContinue
         }
     }
-    
 }
 
 
-Function Invoke-Snitch {
+Function Invoke-Snitch 
+{
     <#
             .SYNOPSIS
             Describe purpose of "Invoke-Snitch" in 1-2 sentences.
@@ -240,7 +238,8 @@ Function Invoke-Snitch {
     # Function to send an email alert to distro-list
 	
     [CmdletBinding()]
-    param (
+    param 
+    (
         [Parameter(Mandatory=$true)]
         [string]$strMessage
     )
@@ -249,7 +248,7 @@ Function Invoke-Snitch {
     # Check that the required variables are set in the environment
     if ($smtphost -and $emailto -and $emailfrom -and $emailsubject -and $strMessage) {
         Send-MailMessage -SmtpServer $smtphost -To $emailto -From $emailfrom -Subject $emailsubject `
-            -BodyasHTML ('{0}' -f $strMessage)
+        -BodyasHTML ('{0}' -f $strMessage)
         
     } else {
     
@@ -258,3 +257,62 @@ Function Invoke-Snitch {
 }
 
 
+Function Invoke-Touch # Mimics Linux touch command
+{
+    Param
+    (
+        [Parameter(Mandatory=$true,Position=1,HelpMessage='File path')]
+        [String]$Path,
+        
+        [Switch]$Quiet
+    ) 
+    
+    Begin
+    {
+
+    }
+	
+    Process
+    {
+        $strPath = $Path
+
+        # See if we can figure out if asking for file or directory
+        if ("$($strPath -replace "^\.")" -like "*.*") 
+        { 
+            $strType = "File"
+        } 
+        
+        Else 
+        { 
+            $strType = "Directory"
+        }
+
+        if ((Test-Path "$strPath") -eq $true) 
+        {
+            If ("$strType" -match "File") 
+            {
+                (Get-ChildItem $strPath).LastWriteTime = Get-Date
+            } 
+        }
+    
+        Else 
+        {
+            If ($Quiet)
+            {
+                $null = New-Item -Force -ItemType $strType -Path "$strPath"
+            }
+            
+            Else 
+            {
+                New-Item -Force -ItemType $strType -Path "$strPath"
+            }
+        }
+        
+    }
+    
+    End
+    {
+        
+    }
+}
+    
