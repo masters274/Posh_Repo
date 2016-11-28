@@ -15,9 +15,15 @@ Function Invoke-DebugIt {
             avoid errors when presenting various types of data, possibly forgetting to
             add ToString() to the end of someting like an integer. 
 
-            .PARAMETER color
+            .PARAMETER Color
             Used when you need to categorize/differentiate, visually, types of values.
             Default color is Cyan.
+
+            .PARAMETER Console
+            Used when you want to log to the console. Can be used when logging to file as well. 
+
+            .PARAMETER Logfile
+            Used to log output to file. Logged as CSV
 
             .EXAMPLE
             Invoke-DebugIt -msg "Count of returned records" -val "({0} -f $($records.count)) -color Green
@@ -30,25 +36,75 @@ Function Invoke-DebugIt {
             Pretty easy to understand. Just give it a try :)
 
     #>
+    <#    
+            CHANGELOG:
+    
+            ver 0.2
+            - Changed parameters to full name
+            - Added aliases to the parameters so older scripts would continue to function
+            - Added the ability to log to file
+            - Added -Console switch parameter for specifying output type
+            - Added logic for older scripts that are not console switch aware
+
+    #>
 	
     [CmdletBinding()]
-    param
+    Param
     (
-        [System.String]
-        $msg,
-        $val,
-        [System.String]
-        $color,
-        [Switch]$Force
+        [Alias('msg','m')]
+        [String] $Message,
+        
+        [Alias('val','v')]$Value,
+        
+        [Alias('c')]
+        [String] $Color,
+        
+        [Alias('f')]
+        [Switch] $Force, # Log even if the Debug parameter is not set
+        
+        [Alias('con')]
+        [Switch] $Console, # Should we log to the console
+        
+        [ValidateScript({ Test-Path -Path ($_ | Split-Path -Parent) -PathType Container })]
+        [Alias('log','l')]
+        [String] $Logfile
     )
     
-    if ($color) {$strColor = $color} else {$strColor = 'Cyan'}
+    [boolean] $Debug = $PSBoundParameters.Debug.IsPresent
     
-    if ($boolDebug -or $Force) {
-        Write-Host -NoNewLine -f Gray ('{0}{1} : ' -f (Get-Date -UFormat '%Y%m%d-%H%M%S : '), ($msg)) 
-        Write-Host -f $($strColor) ('{0}' -f ($val))
+    If (!($Console -and $Logfile))
+    { # Backware compatible logic
+        $Console = $true
+    }
+    
+    IF ($Console)
+    {
+        If ($Color) 
+        {
+            $strColor = $Color
+        } 
+        
+        Else 
+        {
+            $strColor = 'Cyan'
+        }
+    
+        If ($Debug -or $Force) 
+        {
+            Write-Host -NoNewLine -f Gray ('{0}{1} : ' -f (Get-Date -UFormat '%Y%m%d-%H%M%S : '), ($Message)) 
+            Write-Host -f $($strColor) ('{0}' -f ($Value))
+        }
+    }
+    
+    If ($Logfile.Length -gt 0)
+    {
+        $strSender = ('{0},{1},{2}' -f (Get-Date -UFormat '%Y%m%d-%H%M%S'),$Message,$Value)
+        $strSender | Out-File -FilePath $Logfile -Encoding ascii -Append
     }
 }
+
+New-Alias -Name logger -Value Invoke-DebugIt
+New-Alias -Name Invoke-Logger -Value Invoke-DebugIt
 
 
 Function Test-ModuleLoaded {
