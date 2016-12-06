@@ -8,6 +8,11 @@
         - Function (FILESYSTEM) added : Open-Notepad++
         - Multiple aliases added for functions
         - EventLogging added to Invoke-DebugIt function
+
+        Version 0.4
+        - Function (SECURITY) updated : Invoke-Elevate, "sudo $$" now works, just like "sudo !!"
+        - Function (DEVELOPMENT) updated : Fixed scope issues with Invoke-VariableBaseLine
+        - Function (DEVELOPMENT) updated : $boolDebug must be set for -Debug to be recognized in other functions.
 #>
 
 #region : DEVELOPMENT FUNCTIONS 
@@ -179,7 +184,7 @@ Function Invoke-VariableBaseLine
         
         else 
         {
-            $baselineLocalVariables = Get-Variable -Scope Local
+            $Global:baselineLocalVariables = Get-Variable -Scope Local
         }
     }
     
@@ -187,7 +192,7 @@ Function Invoke-VariableBaseLine
     {
         if ($Clean) 
         {
-            Remove-Variable -Name baselineLocalVariables -ErrorAction SilentlyContinue
+            Remove-Variable -Name baselineLocalVariables -Scope Global -ErrorAction SilentlyContinue
         }
     }
 }
@@ -406,14 +411,14 @@ Function Invoke-DebugIt
     Param
     (
         [Parameter(
-        Position=0)]
+                Position=0)]
         [Alias('msg','m')]
         [String] $Message,
         
         [Parameter(
                 ValueFromPipeline=$true,
                 Mandatory=$false,
-        Position=1)]
+                Position=1)]
         [Alias('val','v')]
         $Value,
         
@@ -436,7 +441,7 @@ Function Invoke-DebugIt
     )
     
     $ScriptVersion = '0.'
-    [Bool] $Debug = $PSBoundParameters.Debug.IsPresent
+    [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     
     If (!($Console -and $Logfile))
     { # Backward compatible logic
@@ -455,7 +460,7 @@ Function Invoke-DebugIt
             $strColor = 'Cyan'
         }
     
-        If ($Debug -or $Force) 
+        If ($boolDebug -or $Force) 
         {
             Write-Host -NoNewLine -f Gray ('{0}{1} : ' -f (Get-Date -UFormat '%Y%m%d-%H%M%S : '), ($Message)) 
             Write-Host -f $($strColor) ('{0}' -f ($Value))
@@ -712,23 +717,57 @@ Function Get-LoggedOnUser
 
 Function Invoke-Elevate
 {
+    [CmdLetBinding()]
+    [CmdletBinding(DefaultParameterSetName='Command')]
     Param
     (
+        # ScriptBlock: Negates the need for Command
+        [Parameter(Mandatory=$false,ParameterSetName="Command")]
+        [Parameter(Mandatory=$true, Position=0,ParameterSetName='ScriptBlock',                
+                HelpMessage='Scriptblock of commands to be executed')]
         [ScriptBlock] $ScriptBlock,
+        
+        # Command: Negates the need for ScriptBlock
+        [Parameter(Mandatory=$false, ParameterSetName='ScriptBlock')]
+        [Parameter(Mandatory=$true, Position=0, ParameterSetName='Command',
+                HelpMessage='Commands to be executed')]
+        [String] $Command,
         
         [Switch] $Persist
     )
     
-    [String] $strCommand = "& { $ScriptBlock }"
-    [String] $strEncodedCommand = [Convert]::ToBase64String($([System.Text.Encoding]::Unicode.GetBytes($strCommand)))
-    [String] $strArguments = "-Nop -Exec ByPass -EncodedCommand $strEncodedCommand"
-    
-    IF ($Persist)
+    Begin
     {
-        $strArguments += ' -NoExit'
+        Invoke-VariableBaseLine
+        
+        [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     }
     
-    Start-Process PowerShell -Verb runas -ArgumentList $strArguments
+    Process 
+    {
+    
+        [String] $strCommand = "& { $ScriptBlock }"
+ 
+        IF ($Command)
+        {
+            [String] $strCommand = $Command
+        }
+        
+        [String] $strEncodedCommand = [Convert]::ToBase64String($([System.Text.Encoding]::Unicode.GetBytes($strCommand)))
+        [String] $strArguments = "-Nop -Exec ByPass -EncodedCommand $strEncodedCommand"
+        
+        IF ($Persist)
+        {
+            $strArguments += ' -NoExit'
+        }
+    
+        Start-Process PowerShell -Verb runas -ArgumentList $strArguments
+    }
+    
+    End
+    {
+        Invoke-VariableBaseLine -Clean
+    }
 }
 
 
