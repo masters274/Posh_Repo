@@ -1,8 +1,12 @@
 # Different functions for connecting to various types of databases
 
 <#
-    Version 0.2
-    - Function : Submit-PSobjectToDatabase : Updated : Now identifies if field is [int], and submits as such
+        Version 0.2
+        - Function : Submit-PSobjectToDatabase : Updated : Now identifies if field is [int], and submits as such
+
+        Version 0.3
+        - Function : Submit-PSobjectToDatabase : Updated : Column names now enclosed in sqare brakets []. Spaces... Bah!
+        - Function : New-TableFromPSObject : Added : Produces a table script (MS SQL), based on PSObject
 #>
 
 function Connect-MsSqlDatabase 
@@ -10,11 +14,19 @@ function Connect-MsSqlDatabase
     PARAM 
     (
         [String]$Server,
-        [String]$Database = "Master",
+        
+        [Parameter(Mandatory=$true, ValueFromPipeLine=$true,
+            HelpMessage='Database Name')]
+        [String] $Database = "Master",
+        
         [String]$Username,
+        
         [String]$Password,
-        [String]$Query = $(Throw "How are you gonna run a SQL query, without the query..!"),
+        
+        [String]$Query = $(Throw 'How are you gonna run a SQL query, without the query..!'),
+        
         [Switch]$Kerberos,
+        
         [Switch]$Debug
     )
     
@@ -71,11 +83,11 @@ function Connect-MsSqlDatabase
     # Clean up:
     $objConnection.Close()
     $constructorSqlCommand.Dispose()
-    rv Password -ErrorAction SilentlyContinue
-    rv Username -ErrorAction SilentlyContinue
-    rv objConnection -ErrorAction SilentlyContinue
-    rv Query -ErrorAction SilentlyContinue
-    rv strCommand -ErrorAction SilentlyContinue
+    Remove-Variable Password -ErrorAction SilentlyContinue
+    Remove-Variable Username -ErrorAction SilentlyContinue
+    Remove-Variable objConnection -ErrorAction SilentlyContinue
+    Remove-Variable Query -ErrorAction SilentlyContinue
+    Remove-Variable strCommand -ErrorAction SilentlyContinue
 	
     if ($Debug)
     { # How long did it take to execute this function? 
@@ -177,8 +189,8 @@ Function Submit-PSobjectToDatabase
         #$strColumnNames = ($InputObject | Get-Member -MemberType NoteProperty).Name
         
         $strColumnNames = $InputObject | 
-            Get-Member -MemberType NoteProperty |
-            Select-Object -Property Name,@{ Name='Type'; Expression={ $_.Definition.Split(' ')[0] }}
+        Get-Member -MemberType NoteProperty |
+        Select-Object -Property Name,@{ Name='Type'; Expression={ $_.Definition.Split(' ')[0] }}
             
         $objFailedItems = @()
         
@@ -197,7 +209,7 @@ Function Submit-PSobjectToDatabase
             
             Foreach ($column in $strColumnNames) 
             {
-                $strBuilder += $column.Name
+                $strBuilder += '[' + $column.Name + ']'
                 
                 IF ($column.Type -match 'int')
                 {
@@ -242,6 +254,148 @@ Function Submit-PSobjectToDatabase
     
     End 
     {
+        Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function  New-TableFromPSObject
+{
+    <#
+            .Synopsis
+            Creates a script, that creates a table in MS SQL
+
+            .DESCRIPTION
+            Takes a PSObject, checks for the types of properties, then creates a script, which can then be ran on 
+            and MS SQL Server, as a query, that will in turn create a table based on the object.  
+
+            .EXAMPLE
+            New-TableFromPSObject -InputObject $sender -Database 'MyDB' -Table 'NewTableName' -AllowNulls
+
+            .EXAMPLE
+            $queryScript = New-TableFromPSObject -InputObject $sender -Database 'MyDB' -Table 'NewTableName'
+            Connect-MsSqlDatabase -Server 'DBServer' -Database 'MyDB' -Kerberos -Query $queryScript
+    #>
+    
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true, 
+        HelpMessage='Data to filter')]
+        [Alias('io')]
+        [PSObject] $InputObject,
+        
+        [Parameter(Mandatory=$true, ValueFromPipeLine=$true,
+            HelpMessage='Database Name')]
+        [String] $Database,
+        
+        [Parameter(Mandatory=$true, HelpMessage='Database Table Name')]
+        [String] $Table,
+        
+        [Switch] $AllowNulls
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        Invoke-VariableBaseLine
+        
+        # Global debugging for scripts
+        $boolDebug = $PSBoundParameters.Debug.IsPresent
+    }
+    
+    Process
+    {
+        # Variables
+        $strColumnNames = $InputObject | 
+        Get-Member -MemberType Properties |
+        Select-Object -Property Name,@{ 
+            Name='Type'
+            Expression={ $_.Definition.Split(' ')[0] }
+        }
+        
+        IF ($AllowNulls)
+        {
+            $strNullable = 'NULL'
+        }
+        
+        Else
+        {
+            $strNullable = 'NOT NULL'
+        }
+            
+        $strDatabaseName = '[' + $($Database.Trim()) + ']'
+        $strTableName = '[' + $($Table.Trim()) + ']'
+        $strSchemaBuilder = @()
+        $arrayScript = @()
+        
+        $strBeginScript = @"
+USE $strDatabaseName
+GO
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+SET ANSI_PADDING ON
+GO 
+
+"@
+
+        $strEndScript = @"
+
+GO
+
+SET ANSI_PADDING OFF
+GO
+
+"@
+    
+        Foreach ($Column in $strColumnNames) 
+        {
+            IF ($Column.Type -match 'int') 
+            {
+                $accelSqlType = 'int'
+            }
+                    
+            ElseIF ($_.Type -match 'Date')
+            {
+                $accelSqlType = 'datetime'
+            }
+                    
+            Else
+            {
+                # Quotes around the column name in case of space in the name
+                [int] $intColumnMaxLength = ($InputObject."$($Column.Name)".GetEnumerator().Length | 
+                Measure-Object -Maximum).Maximum | Out-Null
+            
+                IF ($intColumnMaxLength -le 50)
+                {
+                    $intColumnMaxLength = 50
+                }
+        
+                Else
+                {
+                    $intColumnMaxLength = $intColumnMaxLength + 10
+                }
+
+                $accelSqlType = 'varchar ({0})' -f $intColumnMaxLength 
+            }
+
+            $strSchemaBuilder += '[{0}] [{1}] {2}' -f $Column.Name, $accelSqlType, $strNullable
+        }
+    
+        $arrayScript = $strBeginScript + ('CREATE TABLE {0} (' -f $strTableName) + 
+            ($($strSchemaBuilder -join ',') -replace (',',",`n")) + ') ON [PRIMARY]' + $strEndScript
+        
+        $arrayScript
+    }
+    
+    End
+    {
+        # Clean up the environment
         Invoke-VariableBaseLine -Clean
     }
 }
