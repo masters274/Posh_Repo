@@ -10,9 +10,17 @@
         - EventLogging added to Invoke-DebugIt function
 
         Version 0.4
-        - Function (SECURITY) updated : Invoke-Elevate, "sudo $$" now works, just like "sudo !!"
+        - Function (SECURITY) updated : Invoke-Elevate, "sudo $$" or "sudo $^" now works, similar to "sudo !!"
         - Function (DEVELOPMENT) updated : Fixed scope issues with Invoke-VariableBaseLine
         - Function (DEVELOPMENT) updated : $boolDebug must be set for -Debug to be recognized in other functions.
+
+        Version 0.5
+        - Function (FILESYSTEM) updated : As cool as it was, renamed Open-Notepad++ to Open-NotepadPlusPlus :(
+        - Function (FILESYSTEM) added : New alias created for Invoke-Touch = touch
+        - Function (SECURITY) added : Invoke-CredentailManager, with aliases
+        - Function (LOG/ALERT) updated : Removed the $boolDebug declaration from this function. This will be
+                                         set by the calling function, when -Debug is used. 
+        - Function (DEVELOPMENT) updated : Now allows you to add the file path to a module not in the default path. 
 #>
 
 #region : DEVELOPMENT FUNCTIONS 
@@ -60,7 +68,7 @@ Function Test-ModuleLoaded
             .OUTPUTS
             Returns success or failure code ($true | $false), depending on if required modules are loaded.
     #>
-    
+    [CmdletBinding()]
     Param 
     (
         [Parameter(Mandatory=$true,HelpMessage='String array of module names')]
@@ -72,6 +80,7 @@ Function Test-ModuleLoaded
     Process 
     {
         # Variables
+        $boolDebug = $PSBoundParameters.Debug.IsPresent
         $loadedModules = Get-Module
         $availableModules = Get-Module -ListAvailable
         [int]$failedModules = 0
@@ -79,27 +88,23 @@ Function Test-ModuleLoaded
         $arraryRequiredModules = $RequiredModules
         
         # Loop thru all module requirements
-        foreach ($module in $arraryRequiredModules) 
+        Foreach ($module in $arraryRequiredModules) 
         {
-        
-            if ($loadedModules.Name -contains $module) 
+            Invoke-DebugIt -Message 'Module' -Value $module -Console
+            
+            IF ($loadedModules.Name -contains $module) 
             {
                 $true | Out-Null 
-        
             } 
             
-            elseif ($availableModules.Name -ccontains $module) 
+            ElseIF (($availableModules.Name -ccontains $module) -or ($null = Test-Path -Path $module)) 
             {
                 Import-Module -Name $module
-        
-            } 
+            }
             
-            else 
+            Else 
             {
-                if (!$Quiet) 
-                {
-                    Write-Output -InputObject ('{0} module is missing.' -f $module)
-                }
+                Invoke-DebugIt -Message 'Missing module' -Value $module -Console
                 
                 $missingModules.Add($module)
                 $failedModules++
@@ -109,12 +114,15 @@ Function Test-ModuleLoaded
         # Return the boolean value for success for failure
         if ($failedModules -gt 0) 
         {
-            $false
+            Write-Error -Message 'Failed to load required modules'
         } 
         
         else 
         {
-            $true
+            IF (!($Quiet))
+            {
+                return $true
+            }
         }
     }
 }
@@ -198,10 +206,57 @@ Function Invoke-VariableBaseLine
 }
 
 
+Function Add-Signature 
+{
+    # Signs a file using the first code signing cert in your personal store
+    # ./makecert -n "PowerShell Local CertificateRoot" -a sha1 -eku 1.3.6.1.5.5.7.3.3 -r -sv root.pvk root.cer -ss Root -sr localMachine 
+    # ./makecert -n "PowerShell tux" -ss MY -a sha1 -eku 1.3.6.1.5.5.7.3.3 -iv root.pvk -ic root.cer
+    
+    Param
+    (
+        [string] $File=$(throw "Please specify a filename.")
+    )
+    
+    # $cert = @(Get-ChildItem cert:\CurrentUser\My | where-object { $_.FriendlyName -eq "MyCodeSigningCert" }) #[0] #-codesigning)[0]
+    $cert=(Get-ChildItem Cert:currentuser\my\ -CodeSigningCert |
+    Select-Object -First 1)
+
+    # check if the file is a PowerShell file, if not, fix it... 
+    $srtExt = ( dir $File | 
+    ForEach-Object { $_.extension } )
+
+    IF ($srtExt -ne '.ps1') 
+    {   # we want to be able to sign any file that we can write to... 
+
+        # rename the file
+        dir $File | Rename-Item -NewName { $_.Name -replace "$srtExt$" ,".ps1" }
+        
+        # get the temporary file name
+        $strTempName = [io.path]::ChangeExtension($File,"ps1")
+        
+        # sign the file with the new name
+        Set-AuthenticodeSignature $strTempName $cert
+        
+        # change the file name back to the original
+        dir $strTempName | Rename-Item -NewName { $_.Name -replace ".ps1$" ,"$srtExt" }
+    } 
+    
+    Else 
+    {
+        # just sign the file... 
+        Set-AuthenticodeSignature $File $cert
+    }
+}
+
+
+New-Alias -Name Add-Sig -Value Add-Signature -ErrorAction SilentlyContinue
+New-Alias -Name sign -Value Add-Signature -ErrorAction SilentlyContinue
+
 #endregion
 
 
 #region : FILE SYSTEM FUNCTIONS 
+
 
 Function Invoke-Touch
 {
@@ -263,7 +318,7 @@ Function Invoke-Touch
 }
 
 
-Function Open-Notepad++ 
+Function Open-NotepadPlusPlus
 {
     Param
     (
@@ -288,12 +343,14 @@ Function Open-Notepad++
 }
 
 
-New-Alias -Name npp -Value Open-Notepad++ -ErrorAction SilentlyContinue
+New-Alias -Name npp -Value Open-NotepadPlusPlus -ErrorAction SilentlyContinue
+New-Alias -Name touch -Value Invoke-Touch -ErrorAction SilentlyContinue
 
 #endregion
 
 
 #region : LOG/ALERT FUNCTIONS 
+
 
 Function Invoke-Snitch 
 {
@@ -411,14 +468,14 @@ Function Invoke-DebugIt
     Param
     (
         [Parameter(
-                Position=0)]
+        Position=0)]
         [Alias('msg','m')]
         [String] $Message,
         
         [Parameter(
                 ValueFromPipeline=$true,
                 Mandatory=$false,
-                Position=1)]
+        Position=1)]
         [Alias('val','v')]
         $Value,
         
@@ -441,7 +498,7 @@ Function Invoke-DebugIt
     )
     
     $ScriptVersion = '0.'
-    [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
+    #[Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     
     If (!($Console -and $Logfile))
     { # Backward compatible logic
@@ -497,6 +554,7 @@ Function Invoke-DebugIt
         Write-EventLog -LogName $strEventLogName -Source $strSource -EventId $EventId -Message ($Message + $Value)
     }
 }
+
 
 New-Alias -Name logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
 New-Alias -Name Invoke-Logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
@@ -724,13 +782,13 @@ Function Invoke-Elevate
         # ScriptBlock: Negates the need for Command
         [Parameter(Mandatory=$false,ParameterSetName="Command")]
         [Parameter(Mandatory=$true, Position=0,ParameterSetName='ScriptBlock',                
-                HelpMessage='Scriptblock of commands to be executed')]
+        HelpMessage='Scriptblock of commands to be executed')]
         [ScriptBlock] $ScriptBlock,
         
         # Command: Negates the need for ScriptBlock
         [Parameter(Mandatory=$false, ParameterSetName='ScriptBlock')]
         [Parameter(Mandatory=$true, Position=0, ParameterSetName='Command',
-                HelpMessage='Commands to be executed')]
+        HelpMessage='Commands to be executed')]
         [String] $Command,
         
         [Switch] $Persist
@@ -771,8 +829,100 @@ Function Invoke-Elevate
 }
 
 
+Function Invoke-CredentialManager
+{
+    <#
+            .Synopsis
+            Function for managing credentials for storage
+
+            .DESCRIPTION
+            Used to both store, and retreive a password from 
+
+            .EXAMPLE
+            Invoke-CredentailManager -FilePath .\MySshPassord.auth
+
+            .EXAMPLE
+            Invoke-CredentailManager -FilePath .\MySshPassord.auth -Credentail $creds
+    #>
+
+    <#
+            Version 0.?
+            - ? MACD. Move, add, change, or delete details go here. ?
+    #>
+    
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Mandatory=$true, Position=0,
+        HelpMessage='Path to where the credentials files is stored')]
+        [string]$FilePath,
+        
+        [Parameter(Position=1)]
+        [PSCredential]$Credential
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        Invoke-VariableBaseLine
+
+        # Global debugging for scripts
+        $boolDebug = $PSBoundParameters.Debug.IsPresent
+    }
+    
+    Process
+    {
+        # Variables
+        $CredentialsFile = $FilePath
+        
+        # Check to see if the file exists 
+        IF (-not (Test-Path $credentialsfile))
+        { 
+            # If not, then prompt user for the credential 
+            IF ($Credential) 
+            {
+                $creds = $Credential
+            }
+        
+            Else
+            {
+                $creds = Get-Credential 
+            }
+        
+            # Get the password part 
+            $encpassword = $creds.password 
+        
+            # Convert it from secure string and save it to the specified file 
+            $encpassword | ConvertFrom-SecureString | Set-Content $CredentialsFile
+        } 
+    
+        Else 
+        { 
+            # If the file exists, get the content and convert it back to secure string 
+            $encpassword = Get-Content -Path $credentialsfile | ConvertTo-SecureString 
+        }
+     
+        # Use the Marshal classes to create a pointer to the secure string in memory 
+        $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($encpassword) 
+    
+        # Change the value at the pointer back to unicode (i.e. plaintext) 
+        $pass = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($ptr)  
+    
+        # Return the decrypted password 
+        $pass 
+    }
+    
+    End
+    {
+        # Clean up the environment
+        Invoke-VariableBaseLine -Clean
+    }
+}
+
+
 New-Alias -Name elevate -Value Invoke-Elevate -ErrorAction SilentlyContinue
 New-Alias -Name sudo -Value Invoke-Elevate -ErrorAction SilentlyContinue
-
+New-Alias -Name Store-Credentials -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
+New-Alias -Name Get-Password -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
 
 #endregion
