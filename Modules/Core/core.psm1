@@ -19,8 +19,21 @@
         - Function (FILESYSTEM) added : New alias created for Invoke-Touch = touch
         - Function (SECURITY) added : Invoke-CredentailManager, with aliases
         - Function (LOG/ALERT) updated : Removed the $boolDebug declaration from this function. This will be
-                                         set by the calling function, when -Debug is used. 
-        - Function (DEVELOPMENT) updated : Now allows you to add the file path to a module not in the default path. 
+        set by the calling function, when -Debug is used. 
+        - Function (DEVELOPMENT) updated : Now allows you to add the file path to a module not in the default path.
+        
+        Version 0.6
+        - Function (DEVELOPMENT) added : Invoke-EnvrionmentalVariable
+        - Function (DEVELOPMENT) added : Invoke-Alert with alias (alert). Audible tone for when you want to
+        monitor the availability of something while doing some other work. 
+        - Function (SECURITY) updated : Parameter alias on Invoke-CredentialManager for backward compatibility
+        - Function (DEVELOPMENT) added : ConvertTo-Hexadecimal
+        - Function (DEVELOPMENT) added : ConvertFrom-HexToFile. Great way for working with binary files.
+        - Function (DEVELOPMENT) added : ConvertTo-Base36
+        - Function (DEVELOPMENT) added : ConvertFrom-Base36
+        - Function (DEVELOPMENT) added : ConvertTo-Base64
+        - Function (DEVELOPMENT) added : ConvertFrom-Base64
+
 #>
 
 #region : DEVELOPMENT FUNCTIONS 
@@ -249,8 +262,294 @@ Function Add-Signature
 }
 
 
+Function Invoke-EnvironmentalVariable
+{
+    <#
+            .Synopsis
+            Short description
+
+            .DESCRIPTION
+            Long description
+
+            .EXAMPLE
+            Example of how to use this cmdlet
+
+            .EXAMPLE
+            Another example of how to use this cmdlet
+    #>
+
+    <#
+            Version 0.1
+            - Day one, it's my berphday!
+    #>
+
+    [CmdLetBinding()]
+    [CmdletBinding(DefaultParameterSetName='Get')]
+    Param
+    (
+        [Parameter(Mandatory=$true, Position=0,                
+            HelpMessage='Name of the variable')]
+        [String] $Name,
+        
+        [Parameter(Position=1,
+            HelpMessage='Value of the variable')]
+        $Value,
+        
+        [Parameter(Mandatory=$false, Position=2,
+            HelpMessage='Select the scope you require.')]
+        [ValidateSet('Machine','User','Process')]
+        [String]$Scope = 'User',
+        
+        [ValidateSet('Get','Set','Remove')]
+        [String]$Action = 'Get'
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        Invoke-VariableBaseLine
+
+        # Debugging for scripts
+        [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
+    }
+    
+    Process
+    {
+        # Variables
+        [String] $strCommand = '[Environment]::GetEnvironmentVariable($Name,$Scope)'
+        [String] $strFunctionCalledName = $MyInvocation.InvocationName
+        [Bool] $boolIsAdmin = Test-AdminRights
+    
+        Invoke-DebugIt -Message 'Command text' -Value $strCommand -Console
+        Invoke-DebugIt -Message 'Function called name' -Value $strFunctionCalledName -Console
+        Invoke-DebugIt -Message 'Admin?' -Value $boolIsAdmin -Console
+        Invoke-DebugIt -Message 'first item in command pipe' -Value $MyInvocation.InvocationName -Console
+        
+        IF ($Action -eq 'Set' -or `
+            $strFunctionCalledName -eq 'Set-EnvVar' -or `
+            $strFunctionCalledName -eq 'Set-EnvironmentalVariable')
+        {
+            IF ($Value)
+            {
+                [String] $strCommand = '[Environment]::SetEnvironmentVariable($Name,$Value,$Scope)'
+            }
+            
+            Else
+            {
+                Write-Error -Message '{0} : Value is required when using "Set"' -f $strFunctionCalledName
+                Return
+            }
+        }
+        
+        ElseIF ($Action -eq 'Remove' -or $strFunctionCalledName -match 'Remove-Env')
+        {
+            [String] $strCommand = ''
+        }
+        
+        IF ($boolIsAdmin -or ($Scope -eq 'User' -or $Scope -eq 'Process' -or $Action -eq 'Get'))
+        {
+            Invoke-Expression -Command $strCommand
+        }
+            
+        Else
+        {
+            Invoke-Elevate -Command $strCommand
+        }
+    }
+    
+    End
+    {
+        # Clean up the environment
+        Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Invoke-Alert
+{
+    <#
+            .Synopsis
+            Audible tone that can be easily called when some event is triggered. 
+
+            .DESCRIPTION
+            Great for monitoring things in the background, when you need to be working on something else. 
+
+            .PARAMETER Duration
+            This is the count or duration in seconds that the tone will be generated. A value of zero will
+            beep until interrupted. Negative integers will beep only once. 
+
+            .EXAMPLE
+            The following will beep 3 times when the listed IP is reachable
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert
+
+            .EXAMPLE
+            The following will beep once the IP is reachable, until you close the window, or Ctrl+C
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert -c 0
+    #>
+
+    <#
+            Version 0.1
+            - Day one
+    #>
+
+    Param
+    (
+        [Parameter(Position=0)]
+        [Alias('Count','c','Number', 'n')]
+        [Int]$Duration = 3
+    )
+    
+    Process
+    {
+        # Variables
+        $i = 0
+    
+        Do
+        {
+            [console]::Beep(1000,700)
+            Start-Sleep -Seconds 1
+            
+            If ($Duration -gt 0) { $i++ }
+        }
+        While ($i -lt $Duration) 
+    }
+}
+
+
+Function ConvertTo-Hexadecimal 
+{ 
+    Param
+    (
+        [ValidateScript({ Test-Path -Path $_ -PathType 'Leaf' })]
+        [String] $FilePath
+    )
+    
+    # Converts a file to hexadecimal string. 
+    
+    [byte[]] $hex = Get-Content -Encoding byte -Path $FilePath # C:\path\to\file.exe
+    # [System.IO.File]::WriteAllLines(".\hexdump.txt", ([string]$hex)) # Ouput HEX to file
+	
+    [String] $hex
+}
+
+
+Function ConvertFrom-HexToFile 
+{ # Converts hexadecimal string to file. 
+    # PS > [byte[]] $hex = gc -encoding byte -path C:\path\to\file.exe
+    # PS > [System.IO.File]::WriteAllLines(".\hexdump.txt", ([string]$hex))
+    
+    Param
+    (
+        [String]$HexString, 
+        
+        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
+        [String] $FilePath
+    )
+    
+    # Variables
+    $strfilename = $FilePath | Split-Path -Leaf
+    
+    Try 
+    {
+        $objDirectory = gci ($FilePath | Split-Path -Parent)
+    
+        $strDirectory = $objDirectory[0].Parent.FullName
+    }
+    
+    Catch
+    {
+        $strDirectory = $pwd.Path 
+    } 
+    
+    $file = "$strDirectory\$strfilename"
+
+    [Byte[]] $strTemp = $HexString -Split ' '
+    
+    [System.IO.File]::WriteAllBytes($file, $strTemp) # NOTE: MUST BE FULL FILE PATH!
+}
+
+
+Function ConvertFrom-Base36 
+{
+    Param 
+    (
+        [Parameter(valuefrompipeline=$true, 
+        HelpMessage='Alphadecimal string to convert')]
+        [string] $Base36Num = ''
+    )
+    
+    $alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    $inputarray = $base36Num.tolower().tochararray()
+    [array]::reverse($inputarray)
+    [long]$decNum=0
+    $pos=0
+
+    foreach ($c in $inputarray) {
+        $decNum += $alphabet.IndexOf($c) * [long][Math]::Pow(36, $pos)
+        $pos++
+    }
+    $decNum
+}
+
+
+Function ConvertTo-Base36 
+{
+    Param 
+    (
+        [Parameter(valuefrompipeline=$true, 
+            HelpMessage='Integer number to convert')]
+        [int] $DecNum = ''
+    )
+    
+    $alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    Do {
+        $remainder = ($DecNum % 36)
+        $char = $alphabet.substring($remainder,1)
+        $base36Num = "$char$base36Num"
+        $DecNum = ($DecNum - $remainder) / 36
+    }
+    
+    While ($DecNum -gt 0)
+
+    $base36Num
+}
+
+
+Function ConvertFrom-Base64 
+{
+    Param
+    (
+        [String] $InputString
+    )
+    
+    $bytes  = [System.Convert]::FromBase64String($InputString)
+    $decoded = [System.Text.Encoding]::UTF8.GetString($bytes)
+
+    $decoded
+}
+
+
+Function ConvertTo-Base64 
+{
+    Param
+    (
+        [String] $InputString
+    )
+    $bytes  = [System.Text.Encoding]::UTF8.GetBytes($InputString)
+    $encoded = [System.Convert]::ToBase64String($bytes)
+
+    $encoded
+}
+
+
 New-Alias -Name Add-Sig -Value Add-Signature -ErrorAction SilentlyContinue
 New-Alias -Name sign -Value Add-Signature -ErrorAction SilentlyContinue
+New-Alias -Name Set-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Get-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Set-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Get-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Alert -Value Invoke-Alert -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -519,14 +818,14 @@ Function Invoke-DebugIt
     
         If ($boolDebug -or $Force) 
         {
-            Write-Host -NoNewLine -f Gray ('{0}{1} : ' -f (Get-Date -UFormat '%Y%m%d-%H%M%S : '), ($Message)) 
+            Write-Host -NoNewLine -f Gray ('{0}{1} : ' -f (Get-Date).ToString('yyyyMMdd_HHmmss : '), ($Message)) 
             Write-Host -f $($strColor) ('{0}' -f ($Value))
         }
     }
     
     If ($Logfile.Length -gt 0)
     {
-        $strSender = ('{0},{1},{2}' -f (Get-Date -UFormat '%Y%m%d-%H%M%S'),$Message,$Value)
+        $strSender = ('{0},{1},{2}' -f (Get-Date).ToString('yyyyMMdd_HHmmss'),$Message,$Value)
         $strSender | Out-File -FilePath $Logfile -Encoding ascii -Append
     }
     
@@ -855,6 +1154,7 @@ Function Invoke-CredentialManager
     (
         [Parameter(Mandatory=$true, Position=0,
         HelpMessage='Path to where the credentials files is stored')]
+        [Alias('CredentialsFile')]
         [string]$FilePath,
         
         [Parameter(Position=1)]
