@@ -52,6 +52,7 @@ Function Verb-Noun
         
         [ValidatePattern('\b[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}\b')]
         [Parameter(Mandatory=$true)]
+        [String] $Guid,
         
         [Parameter(Mandatory=$true, Position=1,
             HelpMessage='Select the type of output you require.')]
