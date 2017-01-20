@@ -29,33 +29,32 @@ Function Verb-Noun
         [String] $ComputerName,
         
         [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
-        [string] $Path,
+        [String] $Path,
         
         [ValidateScript({ Test-Path -Path $_ -PathType 'Leaf' })]
         [ValidatePattern('\.txt$')]
         [ValidateNotNullOrEmpty()]
-        [string] $txtFilePath,
+        [String] $txtFilePath,
         
         # ScriptBlock: Negates the need for Command
         [Parameter(Mandatory=$false,ParameterSetName="Command")]
         [Parameter(Mandatory=$true, Position=0,ParameterSetName='ScriptBlock',                
-        HelpMessage='Scriptblock of commands to be executed')]
+                HelpMessage='Scriptblock of commands to be executed')]
         [Alias('sb')]
         [ScriptBlock] $ScriptBlock,
         
         # Command: Negates the need for ScriptBlock
         [Parameter(Mandatory=$false, ParameterSetName='ScriptBlock')]
         [Parameter(Mandatory=$true, Position=0, ParameterSetName='Command',
-        HelpMessage='Commands to be executed')]
+                HelpMessage='Commands to be executed')]
         [Alias('cmd')]
         [String] $Command,
         
         [ValidatePattern('\b[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}\b')]
         [Parameter(Mandatory=$true)]
-        [string] $Guid,
         
         [Parameter(Mandatory=$true, Position=1,
-        HelpMessage='Select the type of output you require.')]
+            HelpMessage='Select the type of output you require.')]
         [ValidateSet('Excel','CSV','Screen','GridView')]
         [String] $OutputType 
     )
@@ -64,14 +63,14 @@ Function Verb-Noun
     {
         # Baseline our environment 
         Invoke-VariableBaseLine
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
         
         # List of required modules for this function
         $arrayModulesNeeded = (
             'Core'
         )
-
-        # Global debugging for scripts
-        $boolDebug = $PSBoundParameters.Debug.IsPresent
         
         # Verify and load required modules
         Test-ModuleLoaded -RequiredModules $arrayModulesNeeded -Quiet
