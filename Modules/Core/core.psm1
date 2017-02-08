@@ -1,4 +1,27 @@
 <#
+        .Synopsis
+        Module that extends core functionality in powershell. 
+
+        .DESCRIPTION
+        Module with various generic functions that could be used in any script
+        
+        .NOTES
+        Code reuse saves time!
+        
+        .COMPONENT
+        Core
+        
+        .ROLE
+        Fill gaps in general use
+        
+        .FUNCTIONALITY
+        General Powershell functionality extension
+
+        .AUTHOR
+        Chris Masters - https://github.com/masters274
+#>
+
+<#
         Version 0.3
         - Code folding regions added for better navigation and visibility
         - Function (SECURITY) added : Test-AdminRights
@@ -34,7 +57,59 @@
         - Function (DEVELOPMENT) added : ConvertTo-Base64
         - Function (DEVELOPMENT) added : ConvertFrom-Base64
 
+        Version 0.7
+        - Function (FILESYSTEM) added : New-SymLink
+        - Function (FILESYSTEM) added : Remove-SymLink
+        - Function (DEVELOPMENT) updated : Add-Signature. Removed aliases used inside the function.
+        - Module header information added. 
+        - Function (LOG/ALERT) moved : Moved Invoke-Alert to Log/Alert region.
+        - Custom Type : added : MkLink type added. This is needed by several functions.
+        - Function (SECURITY) : updated : Invoke-Elevate : Removed variable baseline function call. This function 
+        is typically used in conjunction with other functions, which may be using the baseline functionality. 
 #>
+
+
+#region Custom Shared Types 
+
+$sbMkLinkType = {
+    <#
+            lpSymlinkFileName = [String] Path/name where you wan the link to be placed
+            lpTargetFileName = [String] File or folder path you want linked to
+            dwFlags = [int] 0 for file, and 1 for directory. Use logic to figure this out instead of asking
+    #>
+    
+    $typDef = @'
+        using System;
+        using System.Runtime.InteropServices;
+  
+        namespace mklink
+        {
+            public class symlink
+            {
+                [DllImport("kernel32.dll", EntryPoint="CreateSymbolicLink")]
+                public static extern bool CreateSymbolicLink(string lpSymlinkFileName, string lpTargetFileName, int dwFlags);
+                
+                [DllImport("kernel32.dll", EntryPoint="CreateHardLink")]
+                public static extern bool CreateHardLink(string lpSymlinkFileName, string lpTargetFileName, IntPtr lpSecurityAttributes);
+            }
+        }
+'@
+    Try 
+    {
+        $null = [mklink.symlink]
+    } 
+        
+    Catch 
+    {
+        Add-Type -TypeDefinition $typDef
+    }
+}
+
+
+& $sbMkLinkType
+
+#endregion
+
 
 #region : DEVELOPMENT FUNCTIONS 
 
@@ -193,6 +268,8 @@ Function Invoke-VariableBaseLine
     
     Process 
     {
+        # logger -Console -Force -Value $(($MyInvocation.Line).split(' ')[1]).Trim() 
+        
         if ($Clean) 
         {
             Compare-Object -ReferenceObject $($baselineLocalVariables.Name) -DifferenceObject `
@@ -235,14 +312,14 @@ Function Add-Signature
     Select-Object -First 1)
 
     # check if the file is a PowerShell file, if not, fix it... 
-    $srtExt = ( dir $File | 
-    ForEach-Object { $_.extension } )
+    $srtExt = ( Get-ChildItem -Path $File | 
+    ForEach-Object { $_.Extension } )
 
     IF ($srtExt -ne '.ps1') 
     {   # we want to be able to sign any file that we can write to... 
 
         # rename the file
-        dir $File | Rename-Item -NewName { $_.Name -replace "$srtExt$" ,".ps1" }
+        Get-ChildItem -Path $File | Rename-Item -NewName { $_.Name -replace "$srtExt$" ,".ps1" }
         
         # get the temporary file name
         $strTempName = [io.path]::ChangeExtension($File,"ps1")
@@ -251,7 +328,7 @@ Function Add-Signature
         Set-AuthenticodeSignature $strTempName $cert
         
         # change the file name back to the original
-        dir $strTempName | Rename-Item -NewName { $_.Name -replace ".ps1$" ,"$srtExt" }
+        Get-ChildItem -Path $strTempName | Rename-Item -NewName { $_.Name -replace ".ps1$" ,"$srtExt" }
     } 
     
     Else 
@@ -288,15 +365,15 @@ Function Invoke-EnvironmentalVariable
     Param
     (
         [Parameter(Mandatory=$true, Position=0,                
-            HelpMessage='Name of the variable')]
+        HelpMessage='Name of the variable')]
         [String] $Name,
         
         [Parameter(Position=1,
-            HelpMessage='Value of the variable')]
+        HelpMessage='Value of the variable')]
         $Value,
         
         [Parameter(Mandatory=$false, Position=2,
-            HelpMessage='Select the scope you require.')]
+        HelpMessage='Select the scope you require.')]
         [ValidateSet('Machine','User','Process')]
         [String]$Scope = 'User',
         
@@ -327,7 +404,7 @@ Function Invoke-EnvironmentalVariable
         
         IF ($Action -eq 'Set' -or `
             $strFunctionCalledName -eq 'Set-EnvVar' -or `
-            $strFunctionCalledName -eq 'Set-EnvironmentalVariable')
+        $strFunctionCalledName -eq 'Set-EnvironmentalVariable')
         {
             IF ($Value)
             {
@@ -361,57 +438,6 @@ Function Invoke-EnvironmentalVariable
     {
         # Clean up the environment
         Invoke-VariableBaseLine -Clean
-    }
-}
-
-
-Function Invoke-Alert
-{
-    <#
-            .Synopsis
-            Audible tone that can be easily called when some event is triggered. 
-
-            .DESCRIPTION
-            Great for monitoring things in the background, when you need to be working on something else. 
-
-            .PARAMETER Duration
-            This is the count or duration in seconds that the tone will be generated. A value of zero will
-            beep until interrupted. Negative integers will beep only once. 
-
-            .EXAMPLE
-            The following will beep 3 times when the listed IP is reachable
-            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert
-
-            .EXAMPLE
-            The following will beep once the IP is reachable, until you close the window, or Ctrl+C
-            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert -c 0
-    #>
-
-    <#
-            Version 0.1
-            - Day one
-    #>
-
-    Param
-    (
-        [Parameter(Position=0)]
-        [Alias('Count','c','Number', 'n')]
-        [Int]$Duration = 3
-    )
-    
-    Process
-    {
-        # Variables
-        $i = 0
-    
-        Do
-        {
-            [console]::Beep(1000,700)
-            Start-Sleep -Seconds 1
-            
-            If ($Duration -gt 0) { $i++ }
-        }
-        While ($i -lt $Duration) 
     }
 }
 
@@ -497,7 +523,7 @@ Function ConvertTo-Base36
     Param 
     (
         [Parameter(valuefrompipeline=$true, 
-            HelpMessage='Integer number to convert')]
+        HelpMessage='Integer number to convert')]
         [int] $DecNum = ''
     )
     
@@ -549,7 +575,6 @@ New-Alias -Name Set-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction Sile
 New-Alias -Name Get-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 New-Alias -Name Set-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 New-Alias -Name Get-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
-New-Alias -Name Alert -Value Invoke-Alert -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -565,7 +590,7 @@ Function Invoke-Touch
         [String]$Path,
         
         [Switch]$Quiet
-    ) 
+    )
     
     Begin
     {
@@ -642,8 +667,203 @@ Function Open-NotepadPlusPlus
 }
 
 
+Function New-SymLink
+{
+    <#
+            .Synopsis
+            Creates symbolic links
+
+            .DESCRIPTION
+            This provides similar functionality to *nix ln command
+
+            .EXAMPLE
+            New-SymLnk -Link .\MyNewShortCut -Target '\\DataShareServer\MyShare'
+
+            .EXAMPLE
+            ln .\shortcut ..\FileIcantLiveWithOut.txt
+
+            .NOTES
+            This function requires elevation
+    #>
+
+    <#
+            Version 0.2
+            - Using DLL Import instead of calls to mklink.exe
+    #>
+
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Position = 0)]
+        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
+        [String] $Link,
+        
+        [Parameter(Position = 1)]
+        [ValidateScript({ Test-Path $_ })]
+        [String] $Target
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        Invoke-VariableBaseLine
+        
+        # Stop on error action
+        $ErrorActionPreference = 'Stop'
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+        
+        # Check if this is an elevated prompt
+        [bool] $boolIsAdmin = $(Test-AdminRights)
+        
+        # Check that our DLL import exists
+        Try
+        {
+            $null = [mklink.symlink]
+        }
+        
+        Catch
+        {
+            Write-Error -Message '[mklink.symlink] type not loaded' 
+        }
+        
+        # Check if the link/file already exists.
+        IF (Test-Path -Path $Link)
+        {
+            Write-Error -Message ('{0} already exists!' -f $Link)
+        }
+    }
+    
+    Process
+    {
+    
+        <# 
+                If (Test-Path -PathType Container $Target)
+                {
+                $strCommand = "cmd /c mklink /d"
+                }
+    
+                Else
+                {
+                $strCommand = "cmd /c mklink"
+                }
+                Invoke-Expression -Command ('{0} {1} {2}' -f $strCommand, $Link, $Target)
+        #>
+        
+        # Variables 
+        $boolResult = $null
+        
+        $linkPath = Get-item -Path $(Split-Path -Path "$Link" -Parent)
+        IF ($linkPath -eq $null) { $linkPath = $PWD.Path + '\' + ($Link |Split-Path -Leaf) } 
+        Else {$linkPath = $linkPath.FullName + '\' + $($link | Split-Path -Leaf) }
+        
+        $TargetPath = "$((Get-Item -Path $Target).FullName)"
+        
+        If (Test-Path -PathType Container $Target)
+        {
+            [int] $dwFlag = 1
+            
+            [String] $dwType = 'Directory'
+        }
+    
+        Else
+        {
+            [int] $dwFlag = 0
+            
+            [String] $dwType = 'File'
+        }
+        
+        Invoke-DebugIt -Console -Message 'DW Type' -Value "$dwType"
+        
+        $strCommand = '$boolResult = [mklink.symlink]::CreateSymbolicLink("{0}","{1}",{2})' -f $linkPath,$TargetPath,$dwFlag
+        
+        IF ($boolIsAdmin)
+        {
+            Invoke-Expression -Command $strCommand
+        }
+        
+        Else 
+        {
+            # Ask if we should elevate...
+            Invoke-DebugIt -Console -Value 'This command requires elevation. Press "Y" to attempt elevation.' -Force
+            
+            $response = Read-Host -Prompt 'Continue (Y/N)?'
+            
+            IF ($response -eq 'Y')
+            {
+                $strRemoteCommand = @"
+Import-Module -name Core; 
+
+$($strCommand);
+
+IF (!`$boolResult)
+{
+    Invoke-DebugIt -Console -Message 'Status' -Value 'Failed to create link!' -Color 'Red' -Force
+}
+
+Else
+{
+    Invoke-DebugIt -Console -Message 'Success' -Value 'Link created successfully' -Color 'Green' -Force
+}
+"@
+                Invoke-Elevate -Command $strRemoteCommand -Persist
+            }
+            
+            Else
+            {
+                Invoke-DebugIt -Console -Value "Couldn't get it done, huh?" -Color 'Yellow' -Force 
+            }
+        }
+        
+    
+        
+        
+        IF ($boolResult = $false) 
+        {
+            Invoke-DebugIt -Console -Force -Message 'Failed' -Value 'Unable to create link!' -Color 'red'
+        }
+        
+        Else
+        {
+            Invoke-DebugIt -Console -Message 'Success' -Value $boolResult -Color 'Green'
+        }
+    }
+    
+    End
+    {
+        # Clean up the environment
+        Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Remove-SymLink
+{
+    Param
+    (
+        [String] $Link
+    )
+    
+    If (Test-Path -PathType Leaf $Link)
+    {
+        $strCommand = "Remove-Item -Path $Link -Force"
+    }
+    
+    Else
+    {
+        $dir = Get-Item -Path $Link
+        $strCommand = '[System.IO.Directory]::Delete("{0}")' -f $dir
+        # Making a system.io call due to junction handling in < POSH 6
+    }
+
+    Invoke-Expression -Command ('{0}' -f $strCommand)
+}
+
+
 New-Alias -Name npp -Value Open-NotepadPlusPlus -ErrorAction SilentlyContinue
 New-Alias -Name touch -Value Invoke-Touch -ErrorAction SilentlyContinue
+New-Alias -Name ln -Value New-SymLink -ErrorAction SilentlyContinue 
 
 #endregion
 
@@ -855,8 +1075,60 @@ Function Invoke-DebugIt
 }
 
 
+Function Invoke-Alert
+{
+    <#
+            .Synopsis
+            Audible tone that can be easily called when some event is triggered. 
+
+            .DESCRIPTION
+            Great for monitoring things in the background, when you need to be working on something else. 
+
+            .PARAMETER Duration
+            This is the count or duration in seconds that the tone will be generated. A value of zero will
+            beep until interrupted. Negative integers will beep only once. 
+
+            .EXAMPLE
+            The following will beep 3 times when the listed IP is reachable
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert
+
+            .EXAMPLE
+            The following will beep once the IP is reachable, until you close the window, or Ctrl+C
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert -c 0
+    #>
+
+    <#
+            Version 0.1
+            - Day one
+    #>
+
+    Param
+    (
+        [Parameter(Position=0)]
+        [Alias('Count','c','Number', 'n')]
+        [Int]$Duration = 3
+    )
+    
+    Process
+    {
+        # Variables
+        $i = 0
+    
+        Do
+        {
+            [console]::Beep(1000,700)
+            Start-Sleep -Seconds 1
+            
+            If ($Duration -gt 0) { $i++ }
+        }
+        While ($i -lt $Duration) 
+    }
+}
+
+
 New-Alias -Name logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
 New-Alias -Name Invoke-Logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
+New-Alias -Name Alert -Value Invoke-Alert -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -1095,7 +1367,7 @@ Function Invoke-Elevate
     
     Begin
     {
-        Invoke-VariableBaseLine
+        # Invoke-VariableBaseLine
         
         [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     }
@@ -1123,7 +1395,7 @@ Function Invoke-Elevate
     
     End
     {
-        Invoke-VariableBaseLine -Clean
+        # Invoke-VariableBaseLine -Clean
     }
 }
 
