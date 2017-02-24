@@ -249,18 +249,36 @@ Function Sync-Directory
         $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
         
         # Includes
-        $null = [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.Synchronization')
-        $null = [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.Synchronization.Files')
-        $null = [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.Synchronization.MetadataStorage')
+        $Libraries = (
+            'Microsoft.Synchronization',
+            'Microsoft.Synchronization.Files',
+            'Microsoft.Synchronization.MetadataStorage'
+        )
+        
+        # Error action preference
+        $ErrorActionPreference = 'Stop'
+        
+        Try
+        {
+            Foreach ($Library in $Libraries)
+            {
+                $null = [System.Reflection.Assembly]::LoadWithPartialName($Library)
+            }
+        }
+        
+        Catch 
+        {
+            Write-Error -Message 'Failed to load Sync Framework libraries. Microsoft Sync Framework 2.1 required'
+        }
     }
     
     Process
     {
         # Guids  #TODO: Need to get this from the MetaData file
-        # $srcGuid = [guid]::NewGuid().guid
-        # $dstGuid = [guid]::NewGuid().guid
-        $srcGuid = [guid]::New('cf3b72ac-0350-3763-bf51-a6991ac08341').Guid
-        $dstGuid = [guid]::New('c4216300-09db-4f90-8812-ca8867996fe0').Guid
+        $srcGuid = [guid]::NewGuid().guid
+        $dstGuid = [guid]::NewGuid().guid
+        #$srcGuid = [guid]::New('cf3b72ac-0350-3763-bf51-a6991ac08341').Guid
+        #$dstGuid = [guid]::New('c4216300-09db-4f90-8812-ca8867996fe0').Guid
         
         # Sync directories
         $strSourceDirectory = (Get-Item -Path $SourcePath).FullName
@@ -283,7 +301,8 @@ Function Sync-Directory
         }
         
         # Options object
-        $syncOptions = ( [Microsoft.Synchronization.Files.FileSyncOptions]::RecycleConflictLoserFiles, 
+        $syncOptions = ( 
+            [Microsoft.Synchronization.Files.FileSyncOptions]::RecycleConflictLoserFiles, 
             [Microsoft.Synchronization.Files.FileSyncOptions]::RecycleDeletedFiles,
             [Microsoft.Synchronization.Files.FileSyncOptions]::RecyclePreviousFileOnUpdates
         )
@@ -299,8 +318,8 @@ Function Sync-Directory
         $destinationProvider.DetectChanges()
         
         # Display detected changes
-        $sourceProvider.DetectedChanges += [System.EventHandler] $srcAppliedChangeEventArgs
-        $destinationProvider.DetectedChanges
+        #$sourceProvider.DetectedChanges += [System.EventHandler] $srcAppliedChangeEventArgs
+        #$destinationProvider.DetectedChanges
 
 
         # Agent and sync action
