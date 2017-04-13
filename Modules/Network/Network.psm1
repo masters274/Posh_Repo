@@ -24,6 +24,9 @@
 <#
         Version 0.1
         - Day one
+
+        Version 0.2
+        - Function (WEB) Added : Get-WebCertificate
 #>
 
 #endregion
@@ -169,10 +172,10 @@ Function Get-DNSDebugLog
     Process
     {
         Write-Verbose "Getting the contents of $Path, and matching for correct rows."
-        $rows = (Get-Content $Path) -match $dnspattern -notmatch 'ERROR offset' -notmatch 'NOTIMP'
-        # $file = ls $Path;
-        # $objFile = [System.IO.File]::ReadAllText($file.FullName);
-        # $rows = $objFile.split("\n") -match $dnspattern -notmatch 'ERROR offset' -notmatch 'NOTIMP'
+        #$rows = (Get-Content $Path) -match $dnspattern -notmatch 'ERROR offset' -notmatch 'NOTIMP'
+        $file = ls $Path;
+        $objFile = [System.IO.File]::ReadAllText($file.FullName);
+        $rows = $objFile.split("`n") -match $dnspattern -notmatch 'ERROR offset' -notmatch 'NOTIMP'
         Write-Verbose "Found $($rows.count) in debuglog, processing 1 at a time."
         ForEach ($row in $rows)
         {
@@ -495,5 +498,131 @@ Function Get-MyIpAddress
     }
 }
 
+
+### Web Functions ###
+
+Function Get-WebCertificate
+{
+	<#
+
+			.Synopsis
+			Retrieve the details of a website's TLS certificate
+
+			.DESCRIPTION
+			Long description
+
+			.EXAMPLE
+			Example of how to use this cmdlet
+
+			.EXAMPLE
+			Another example of how to use this cmdlet
+	#>
+
+	<#
+			Version 0.?
+			- ???
+	#>
+
+	[CmdLetBinding()]
+	Param
+	(
+		[Parameter(Mandatory = $true, ValueFromPipeline = $true,
+		Position = 0, HelpMessage = 'Name or IP of system')]
+		[String[]] $System,
+        
+		[int] $Port = 443
+	)
+    
+	Begin
+	{
+		# Baseline our environment 
+		Invoke-VariableBaseLine
+
+		# Debugging for scripts
+		$Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+	}
+    
+	Process
+	{
+		# Variables
+		[int] $intTimeOutMilliseconds = 2500
+		$objCerts = @()
+        
+        
+		Foreach ($objSystem in $System) 
+		{
+			# ensure that workin variables are clean. 
+			<#
+					$request = $null 
+					$cert = $null
+					$dtExpiration = $null
+					$certName = $null
+					$intDaysRemaining = $null
+			#>
+            
+			# Must be working with a string name
+			If ($objSystem -notmatch 'https://')
+			{
+				[URI] $objSystem = 'https://{0}' -f $objSystem
+			}
+                
+			Else
+			{
+                
+			}
+            
+			# attempt to retrieve the server certificate
+			$request = $null
+			Remove-Variable -Name request -ErrorAction SilentlyContinue
+			$request = [Net.HttpWebRequest]::Create($objSystem)
+			$request.TimeOut = $intTimeOutMilliseconds
+            
+			Try
+			{
+				$request.GetResponse()
+			}
+
+			Catch 
+			{
+				Write-Debug -Message ('Unable to find {0}' -f $objSystem)
+			}
+            
+			If ($request.ServicePoint.Certificate.Subject -ne $null)
+			{
+				$strCertName = $request.ServicePoint.Certificate.GetName()
+				$strCommonName = $strCertName.Split(' ') -Match 'CN=' -replace 'CN='
+				[DateTime]$dtExpiration = $request.ServicePoint.Certificate.GetExpirationDateString()
+				[int]$intDaysRemaining = ($dtExpiration - $(get-date)).Days
+            
+				$objBuilder = New-Object -TypeName PSObject 
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'URI' -Value $objSystem
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Name' -Value $strCertName
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'CommonName' -Value $strCommonName
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'EffectiveDate' -Value $request.ServicePoint.Certificate.GetEffectiveDateString()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'EndDate' -Value $request.ServicePoint.Certificate.GetExpirationDateString()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'RemainingDays' -Value $intDaysRemaining
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'SHA1' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'KeyAlgorithm' -Value $request.ServicePoint.Certificate.GetKeyAlgorithm()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'SerialNumber' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Subject' -Value $request.ServicePoint.Certificate.Subject
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Issuer' -Value $request.ServicePoint.Certificate.GetIssuerName()
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Handle' -Value $request.ServicePoint.Certificate.Handle
+				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Format' -Value $request.ServicePoint.Certificate.GetFormat()
+            
+				# Append our cert object
+				$objCerts += $objBuilder
+			}
+		}
+
+		# Return the object of certs
+		$objCerts
+	}
+    
+	End
+	{
+		# Clean up the environment
+		Invoke-VariableBaseLine -Clean
+	}
+}
 
 #endregion
