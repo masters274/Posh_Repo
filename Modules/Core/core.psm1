@@ -502,7 +502,7 @@ Function ConvertFrom-HexToFile
 	{
 		#$objDirectory = gci ($FilePath | Split-Path -Parent)
     
-		$strDirectory = Get-Item -Path $($FilePath | Split-Path -Parent).FullName
+		$strDirectory = (Get-Item -Path $($FilePath | Split-Path -Parent)).FullName
 	}
     
 	Catch
