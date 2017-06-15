@@ -27,6 +27,11 @@
 
         Version 0.2
         - Function (WEB) Added : Get-WebCertificate
+        - Function (DNS) Changed : Added progress to the Get-DnsDebugLog 
+
+        Version 0.3
+        - Function (WEB) added : Get-WebSecurityProtocol
+        - Function (WEB) added : Set-WebSecurityProtocol
 #>
 
 #endregion
@@ -35,19 +40,20 @@
 #region Prerequisites
 
 # All modules require the core
-[scriptblock] $__init = {
+If (!(Get-Module -Name core))
+{
     Try
     {
-        Import-Module -Name 'core'
+        Import-Module -Name 'core' -ErrorAction Stop
     }
 
     Catch
     {
         Try
         {
-            $uriCoreModule = 'https://raw.githubusercontent.com/masters274/Powershell_Stuff/master/Modules/Core/core.psm1'
+            $uriCoreModule = 'https://raw.githubusercontent.com/masters274/Posh_Repo/master/Modules/Core/core.psm1'
     
-            $moduleCode = (Invoke-WebRequest -Uri $uriCoreModule).Content
+            $moduleCode = (Invoke-WebRequest -Uri $uriCoreModule -UseBasicParsing).Content
             
             Invoke-Expression -Command $moduleCode
         }
@@ -58,8 +64,6 @@
         }
     }
 }
-
-& $__init
 
 #endregion
 
@@ -176,7 +180,10 @@ Function Get-DNSDebugLog
         $file = ls $Path;
         $objFile = [System.IO.File]::ReadAllText($file.FullName);
         $rows = $objFile.split("`n") -match $dnspattern -notmatch 'ERROR offset' -notmatch 'NOTIMP'
-        Write-Verbose "Found $($rows.count) in debuglog, processing 1 at a time."
+        Write-Verbose "Found $($rows.count) rows in debuglog, processing 1 at a time."
+        
+        [int]$intTracker = 0
+                
         ForEach ($row in $rows)
         {
             Try
@@ -190,10 +197,16 @@ Function Get-DNSDebugLog
             }
             Catch
             {
-                Write-Verbose 'Failed to interpet row.'
-                Write-Debug 'Failed to interpet row.'
+                $strFailedRow = 'Failed to interpet row.'
+                Write-Verbose $strFailedRow
+                Write-Debug $strFailedRow
                 Write-Debug $row
             }
+
+            $perc = ($intTracker/$($rows.Count) * 100)
+            Write-Progress -PercentComplete $perc -Activity "Processing $intTracker of $($rows.Count)" `
+            -Status 'File analysis progress'
+            $intTracker++
         }
     }
     
@@ -408,7 +421,7 @@ Function ConvertTo-DottedDecimalIP ( [String]$IP )
     Switch -RegEx ($IP) {
         "([01]{8}\.){3}[01]{8}" {
 
-            Return [String]::Join('.', $( $IP.Split('.') | ForEach-Object {[Convert]::ToInt32($_, 2) } ))}
+        Return [String]::Join('.', $( $IP.Split('.') | ForEach-Object {[Convert]::ToInt32($_, 2) } ))}
         "\d" {
 
             $IP = [UInt32]$IP
@@ -447,9 +460,9 @@ Function ifconfig
 
 
     Foreach ($adapter in $(Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Sort-Object -Property Name)) {
-                $strName = $adapter.Name
-                $strMac = $adapter.MacAddress
-                $strIP = $adapter | Get-NetIpAddress | ForEach-Object {$_.IPAddress
+        $strName = $adapter.Name
+        $strMac = $adapter.MacAddress
+        $strIP = $adapter | Get-NetIpAddress | ForEach-Object {$_.IPAddress
         }
 		
         $objBuilder = New-Object -TypeName PSObject
@@ -501,128 +514,194 @@ Function Get-MyIpAddress
 
 ### Web Functions ###
 
+
 Function Get-WebCertificate
 {
-	<#
+    <#
 
-			.Synopsis
-			Retrieve the details of a website's TLS certificate
+            .Synopsis
+            Retrieve the details of a website's TLS certificate
 
-			.DESCRIPTION
-			Long description
+            .DESCRIPTION
+            Long description
 
-			.EXAMPLE
-			Example of how to use this cmdlet
+            .EXAMPLE
+            Example of how to use this cmdlet
 
-			.EXAMPLE
-			Another example of how to use this cmdlet
-	#>
+            .EXAMPLE
+            Another example of how to use this cmdlet
+    #>
 
-	<#
-			Version 0.?
-			- ???
-	#>
+    <#
+            Version 0.?
+            - ???
+    #>
 
-	[CmdLetBinding()]
-	Param
-	(
-		[Parameter(Mandatory = $true, ValueFromPipeline = $true,
-		Position = 0, HelpMessage = 'Name or IP of system')]
-		[String[]] $System,
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true,
+        Position = 0, HelpMessage = 'Name or IP of system')]
+        [String[]] $System,
         
-		[int] $Port = 443
-	)
+        [int] $Port = 443
+    )
     
-	Begin
-	{
-		# Baseline our environment 
-		Invoke-VariableBaseLine
+    Begin
+    {
+        # Baseline our environment 
+        Invoke-VariableBaseLine
 
-		# Debugging for scripts
-		$Script:boolDebug = $PSBoundParameters.Debug.IsPresent
-	}
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+    }
     
-	Process
-	{
-		# Variables
-		[int] $intTimeOutMilliseconds = 2500
-		$objCerts = @()
+    Process
+    {
+        # Variables
+        [int] $intTimeOutMilliseconds = 2500
+        $objCerts = @()
         
         
-		Foreach ($objSystem in $System) 
-		{
-			# ensure that workin variables are clean. 
-			<#
-					$request = $null 
-					$cert = $null
-					$dtExpiration = $null
-					$certName = $null
-					$intDaysRemaining = $null
-			#>
+        Foreach ($objSystem in $System) 
+        {
+            # ensure that workin variables are clean. 
+            <#
+                    $request = $null 
+                    $cert = $null
+                    $dtExpiration = $null
+                    $certName = $null
+                    $intDaysRemaining = $null
+            #>
             
-			# Must be working with a string name
-			If ($objSystem -notmatch 'https://')
-			{
-				[URI] $objSystem = 'https://{0}' -f $objSystem
-			}
+            # Must be working with a string name
+            If ($objSystem -notmatch 'https://')
+            {
+                [URI] $objSystem = 'https://{0}' -f $objSystem
+            }
                 
-			Else
-			{
+            Else
+            {
                 
-			}
+            }
             
-			# attempt to retrieve the server certificate
-			$request = $null
-			Remove-Variable -Name request -ErrorAction SilentlyContinue
-			$request = [Net.HttpWebRequest]::Create($objSystem)
-			$request.TimeOut = $intTimeOutMilliseconds
+            # attempt to retrieve the server certificate
+            $request = $null
+            Remove-Variable -Name request -ErrorAction SilentlyContinue
+            $request = [Net.HttpWebRequest]::Create($objSystem)
+            $request.TimeOut = $intTimeOutMilliseconds
             
-			Try
-			{
-				$request.GetResponse()
-			}
+            Try
+            {
+                $request.GetResponse()
+            }
 
-			Catch 
-			{
-				Write-Debug -Message ('Unable to find {0}' -f $objSystem)
-			}
+            Catch 
+            {
+                Write-Debug -Message ('Unable to find {0}' -f $objSystem)
+            }
             
-			If ($request.ServicePoint.Certificate.Subject -ne $null)
-			{
-				$strCertName = $request.ServicePoint.Certificate.GetName()
-				$strCommonName = $strCertName.Split(' ') -Match 'CN=' -replace 'CN='
-				[DateTime]$dtExpiration = $request.ServicePoint.Certificate.GetExpirationDateString()
-				[int]$intDaysRemaining = ($dtExpiration - $(get-date)).Days
+            If ($request.ServicePoint.Certificate.Subject -ne $null)
+            {
+                $strCertName = $request.ServicePoint.Certificate.GetName()
+                $strCommonName = $strCertName.Split(' ') -Match 'CN=' -replace 'CN='
+                [DateTime]$dtExpiration = $request.ServicePoint.Certificate.GetExpirationDateString()
+                [int]$intDaysRemaining = ($dtExpiration - $(get-date)).Days
             
-				$objBuilder = New-Object -TypeName PSObject 
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'URI' -Value $objSystem
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Name' -Value $strCertName
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'CommonName' -Value $strCommonName
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'EffectiveDate' -Value $request.ServicePoint.Certificate.GetEffectiveDateString()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'EndDate' -Value $request.ServicePoint.Certificate.GetExpirationDateString()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'RemainingDays' -Value $intDaysRemaining
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'SHA1' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'KeyAlgorithm' -Value $request.ServicePoint.Certificate.GetKeyAlgorithm()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'SerialNumber' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Subject' -Value $request.ServicePoint.Certificate.Subject
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Issuer' -Value $request.ServicePoint.Certificate.GetIssuerName()
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Handle' -Value $request.ServicePoint.Certificate.Handle
-				$objBuilder | Add-Member -MemberType NoteProperty -Name 'Format' -Value $request.ServicePoint.Certificate.GetFormat()
+                $objBuilder = New-Object -TypeName PSObject 
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'URI' -Value $objSystem
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'Name' -Value $strCertName
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'CommonName' -Value $strCommonName
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'EffectiveDate' -Value $request.ServicePoint.Certificate.GetEffectiveDateString()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'EndDate' -Value $request.ServicePoint.Certificate.GetExpirationDateString()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'RemainingDays' -Value $intDaysRemaining
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'SHA1' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'KeyAlgorithm' -Value $request.ServicePoint.Certificate.GetKeyAlgorithm()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'SerialNumber' -Value $request.ServicePoint.Certificate.GetSerialNumberString()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'Subject' -Value $request.ServicePoint.Certificate.Subject
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'Issuer' -Value $request.ServicePoint.Certificate.GetIssuerName()
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'Handle' -Value $request.ServicePoint.Certificate.Handle
+                $objBuilder | Add-Member -MemberType NoteProperty -Name 'Format' -Value $request.ServicePoint.Certificate.GetFormat()
             
-				# Append our cert object
-				$objCerts += $objBuilder
-			}
-		}
+                # Append our cert object
+                $objCerts += $objBuilder
+            }
+        }
 
-		# Return the object of certs
-		$objCerts
-	}
+        # Return the object of certs
+        $objCerts
+    }
     
-	End
-	{
-		# Clean up the environment
-		Invoke-VariableBaseLine -Clean
-	}
+    End
+    {
+        # Clean up the environment
+        Invoke-VariableBaseLine -Clean
+    }
 }
+
+
+Function Get-WebSecurityProtocol
+{
+    [Net.ServicePointManager]::SecurityProtocol
+}
+
+
+Function Set-WebSecurityProtocol
+{
+    Param
+    (
+        [Parameter(Mandatory=$true, Position=0, HelpMessage='Select protocols to be enabled')]
+        [ValidateSet('SSLv3', 'TLS1.0', 'TLS1.1', 'TLS1.2')]
+        [String[]] $Protocols,
+        
+        [Switch] $Append,
+        
+        [Switch] $Quiet
+    )
+    
+    # Variables
+    $intCounter = 0
+    $dictProtocols = @{
+        'SSLv3' = 'Ssl3'
+        'TLS1.0' = 'Tls'
+        'TLS1.1' = 'Tls11'
+        'TLS1.2' = 'Tls12'
+    }
+    
+    $currentProtocols = Get-WebSecurityProtocol
+    
+    Foreach ($protocol in $Protocols)
+    {
+        If ((!$Append) -and $intCounter -eq 0)
+        { 
+            $strOperator = '=' 
+            $boolSkip = $false
+        } 
+        
+        Else 
+        { 
+            $strOperator = '+=' 
+            
+            If ($currentProtocols -match $dictProtocols[$protocol]) 
+            { $boolSkip = $true } Else { $boolSkip = $false }
+        }
+        
+        $strCommand = ('[Net.ServicePointManager]::SecurityProtocol {0} [Net.SecurityProtocolType]::{1}' `
+        -f $strOperator, $($dictProtocols["$protocol"]))
+
+        If (!$boolSkip)
+        {
+            Invoke-Expression -Command $strCommand | Out-Null
+        }
+        
+        $intCounter++
+    }
+    
+    If (!$Quiet)
+    {
+        Get-WebSecurityProtocol
+    }
+}
+
 
 #endregion
