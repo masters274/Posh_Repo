@@ -196,152 +196,209 @@ Function Dismount-VolumeShadowCopy {
 
 Function Sync-Directory
 {
-    <#
-            .SYNOPSIS
-            Keep two directories synchronized
+	<#
+			.SYNOPSIS
+			Keep two directories synchronized
 
-            .DESCRIPTION
-            Built using the Microsoft Sync Framework 2.1. This function keeps two directories in sync with each
-            other. Multiple clients can sync to the same shared directory. 
+			.DESCRIPTION
+			Built using the Microsoft Sync Framework 2.1. This function keeps two directories in sync with each
+			other. Multiple clients can sync to the same shared directory. 
 
-            .EXAMPLE
-            Sync-Directory -SourcePath 'C:\sourceDir' -DestinationPath 'C:\destinationDirectory'
+			.EXAMPLE
+			Sync-Directory -SourcePath 'C:\sourceDir' -DestinationPath 'C:\destinationDirectory'
 
-            .EXAMPLE
-            Sync-Directory '.\myImportantStuff' '\\ShareServer\myShare\importantStuff' -SyncHiddenFiles
+			.EXAMPLE
+			Sync-Directory '.\myImportantStuff' '\\ShareServer\myShare\importantStuff' -SyncHiddenFiles
 
-            .REQUIREMENTS
-            Microsoft Sync Framework 2.1 - https://www.microsoft.com/en-us/download/details.aspx?id=19502
-    #>
+			.REQUIREMENTS
+			Microsoft Sync Framework 2.1 - https://www.microsoft.com/en-us/download/details.aspx?id=19502
+	#>
 
-    <#
-            Version 0.1
-            - Day one
-    #>
+	<#
+			Version 0.1
+			- Day one
+	#>
 
-    [CmdLetBinding()]
-    Param
-    (
-        [Parameter(Mandatory = $true, Position = 0)]
-        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
-        [String] $SourcePath,
+	[CmdLetBinding()]
+	Param
+	(
+		[Parameter(Mandatory = $true, Position = 0)]
+		[ValidateScript({ Test-Path $_ -PathType Container })]
+		[String] $SourcePath,
         
-        [Parameter(Mandatory = $true, Position = 1)]
-        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
-        [String] $DestinationPath,
+		[ValidateScript({
+					try {
+						[System.Guid]::Parse($_) | Out-Null
+						$true
+					} catch {
+						$false
+					}
+		})]
+		[String] $sGuid,
         
-        [String[]] $FileNameFilter = ('~*.tmp','*.dat','Desktop.ini','*.lnk','Thumbs.db'),
+		[Parameter(Mandatory = $true, Position = 1)]
+		[ValidateScript({ Test-Path $_ -PathType Container })]
+		[String] $DestinationPath,
         
-        [Switch] $SyncHiddenFiles,
+		[ValidateScript({
+					try {
+						[System.Guid]::Parse($_) | Out-Null
+						$true
+					} catch {
+						$false
+					}
+		})]
+		[String] $dGuid,
         
-        [Switch] $SyncSystemFiles,
+		[String[]] $FileNameFilter = ('~*.tmp','*.dat','Desktop.ini','*.lnk','Thumbs.db'),
         
-        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
-        [String] $ArchivePath
-    )
+		[Switch] $SyncHiddenFiles,
+        
+		[Switch] $SyncSystemFiles,
+        
+		[ValidateScript({ Test-Path $_ -PathType Container })]
+		[String] $ArchivePath
+	)
     
-    Begin
-    {
-        # Baseline our environment 
-        Invoke-VariableBaseLine
+	Begin
+	{
+		# Baseline our environment 
+		Invoke-VariableBaseLine
 
-        # Debugging for scripts
-        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+		# Debugging for scripts
+		$Script:boolDebug = $PSBoundParameters.Debug.IsPresent
         
-        # Includes
-        $Libraries = (
-            'Microsoft.Synchronization',
-            'Microsoft.Synchronization.Files',
-            'Microsoft.Synchronization.MetadataStorage'
-        )
+		# Includes
+		$Libraries = (
+			'Microsoft.Synchronization',
+			'Microsoft.Synchronization.Files',
+			'Microsoft.Synchronization.MetadataStorage'
+		)
         
-        # Error action preference
-        $ErrorActionPreference = 'Stop'
+		# Error action preference
+		$ErrorActionPreference = 'Stop'
         
-        Try
-        {
-            Foreach ($Library in $Libraries)
-            {
-                $null = [System.Reflection.Assembly]::LoadWithPartialName($Library)
-            }
-        }
+		Try
+		{
+			Foreach ($Library in $Libraries)
+			{
+				$null = [System.Reflection.Assembly]::LoadWithPartialName($Library)
+			}
+		}
         
-        Catch 
-        {
-            Write-Error -Message 'Failed to load Sync Framework libraries. Microsoft Sync Framework 2.1 required'
-        }
-    }
+		Catch 
+		{
+			Write-Error -Message 'Failed to load Sync Framework libraries. Microsoft Sync Framework 2.1 required'
+		}
+	}
     
-    Process
-    {
-        # Guids  #TODO: Need to get this from the MetaData file
-        $srcGuid = [guid]::NewGuid().guid
-        $dstGuid = [guid]::NewGuid().guid
-        #$srcGuid = [guid]::New('cf3b72ac-0350-3763-bf51-a6991ac08341').Guid
-        #$dstGuid = [guid]::New('c4216300-09db-4f90-8812-ca8867996fe0').Guid
-        
-        # Sync directories
-        $strSourceDirectory = (Get-Item -Path $SourcePath).FullName
-        $strDestinationDirectory = (Get-Item -Path $DestinationPath).FullName
-        
-        # Filter
-        $scopeFilter = [Microsoft.Synchronization.Files.FileSyncScopeFilter]::new()
-        # File attribute objects for the scope filter. We don't want hidden or system files
-        $attribHidden = [FileAttributes]::Hidden
-        $attribSystem = [FileAttributes]::System
+	Process
+	{
+		Function Script:Where-Matches
+		{
+			<#
+					.DESCRIPTION
+					Matches an environmental variable used to store sync jobs.
 
-        # Array needed cause there is no Add() method, only get or set;
-        $arrayAttrib = ($attribHidden,$attribSystem)
-        $scopeFilter.AttributeExcludeMask = $arrayAttrib
-        $arrayNameFilters = $FileNameFilter
+					.PARAMETER InputObject
+					Array of variables to filter.
+			#>
 
-        Foreach ($nameFilter in $arrayNameFilters)
-        {
-            $scopeFilter.FileNameExcludes.Add("$nameFilter")
-        }
+
+			Param 
+			(
+				[Parameter(Mandatory=$true, 
+						ValueFromPipeline=$true, 
+				HelpMessage='Data to filter')]
+				$InputObject
+			)
+			Process
+			{
+            
+				IF (
+					$InputObject -match 'SyncDir_'
+				)
         
-        # Options object
-        $syncOptions = ( 
-            [Microsoft.Synchronization.Files.FileSyncOptions]::RecycleConflictLoserFiles, 
-            [Microsoft.Synchronization.Files.FileSyncOptions]::RecycleDeletedFiles,
-            [Microsoft.Synchronization.Files.FileSyncOptions]::RecyclePreviousFileOnUpdates
-        )
+				{
+					$InputObject
+				}
+			}
+		}
         
-        # Providers
-        $sourceProvider = New-Object Microsoft.Synchronization.Files.FileSyncProvider `
-        -ArgumentList $srcGuid, $strSourceDirectory, $scopeFilter, $syncOptions
+		# Check if GUID is stored for the source and destination, if not, create it. 
+		#$envVars = [System.Environment]::GetEnvironmentVariables('User').Keys.Split("`n") | Where-Matches
+        
+
+        
+		# Sync directories
+		$strSourceDirectory = (Get-Item -Path $SourcePath).FullName -replace "\\$"
+		$strDestinationDirectory = (Get-Item -Path $DestinationPath).FullName -replace "\\$"
+		
+				# Guids  
+		#TODO: Need to get this from the MetaData file
+		If ($sGuid) { $srcGuid = $sGuid } Else { $srcGuid = [guid]::NewGuid().guid }
+		If ($dGuid) { $dstGuid = $dGuid } Else { $dstGuid = [guid]::NewGuid().guid }
+        
+		# Filter
+		$scopeFilter = [Microsoft.Synchronization.Files.FileSyncScopeFilter]::new()
+		# File attribute objects for the scope filter. We don't want hidden or system files
+		$attribHidden = [System.IO.FileAttributes]::Hidden
+		$attribSystem = [System.IO.FileAttributes]::System
+
+		# Array needed cause there is no Add() method, only get or set;
+		$arrayAttrib = ($attribHidden,$attribSystem)
+		$scopeFilter.AttributeExcludeMask = $arrayAttrib
+		$arrayNameFilters = $FileNameFilter
+
+		Foreach ($nameFilter in $arrayNameFilters)
+		{
+			$scopeFilter.FileNameExcludes.Add("$nameFilter")
+		}
+        
+		# Options object
+		$syncOptions = ( 
+			[Microsoft.Synchronization.Files.FileSyncOptions]::RecycleConflictLoserFiles, 
+			[Microsoft.Synchronization.Files.FileSyncOptions]::RecycleDeletedFiles,
+			[Microsoft.Synchronization.Files.FileSyncOptions]::RecyclePreviousFileOnUpdates
+		)
+        
+		# Providers
+		$sourceProvider = New-Object Microsoft.Synchronization.Files.FileSyncProvider `
+		-ArgumentList $srcGuid, $strSourceDirectory, $scopeFilter, $syncOptions
     
-        $destinationProvider =  New-Object Microsoft.Synchronization.Files.FileSyncProvider `
-        -ArgumentList $dstGuid, $strDestinationDirectory, $scopeFilter, $syncOptions
+		$destinationProvider =  New-Object Microsoft.Synchronization.Files.FileSyncProvider `
+		-ArgumentList $dstGuid, $strDestinationDirectory, $scopeFilter, $syncOptions
     
-        $sourceProvider.DetectChanges()
-        $destinationProvider.DetectChanges()
+		#$sourceProvider.DetectChanges()
+		#$destinationProvider.DetectChanges()
         
-        # Display detected changes
-        #$sourceProvider.DetectedChanges += [System.EventHandler] $srcAppliedChangeEventArgs
-        #$destinationProvider.DetectedChanges
+		# Display detected changes
+		#$sourceProvider.DetectedChanges += [System.EventHandler] $srcAppliedChangeEventArgs
+		#$destinationProvider.DetectedChanges
 
 
-        # Agent and sync action
-        $synDirection = [Microsoft.Synchronization.SyncDirectionOrder]::UploadAndDownload
+		# Agent and sync action
+		$synDirection = [Microsoft.Synchronization.SyncDirectionOrder]::UploadAndDownload
 
-        $syncAgent = [Microsoft.Synchronization.SyncOrchestrator]::new()
+		$syncAgent = [Microsoft.Synchronization.SyncOrchestrator]::new()
 
-        [Microsoft.Synchronization.SyncProvider] $srcProv = $sourceProvider
-        [Microsoft.Synchronization.SyncProvider] $dstProv = $destinationProvider
+		[Microsoft.Synchronization.SyncProvider] $srcProv = $sourceProvider
+		[Microsoft.Synchronization.SyncProvider] $dstProv = $destinationProvider
 
-        $syncAgent.LocalProvider = $srcProv
-        $syncAgent.RemoteProvider = $dstProv
-        $syncAgent.Direction = $synDirection
+		$syncAgent.LocalProvider = $srcProv
+		$syncAgent.RemoteProvider = $dstProv
+		$syncAgent.Direction = $synDirection
     
-        $syncAgent.Synchronize()
-    }
+		$results = $syncAgent.Synchronize()
+        
+		$results
+	}
     
-    End
-    {
-        # Clean up the environment
-        Invoke-VariableBaseLine -Clean
-    }
+	End
+	{
+		# Clean up the environment
+		Invoke-VariableBaseLine -Clean
+	}
 }
 
 
