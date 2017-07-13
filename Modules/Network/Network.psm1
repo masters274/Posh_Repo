@@ -31,7 +31,8 @@
 
         Version 0.3
         - Function (WEB) added : Get-WebSecurityProtocol
-        - Function (WEB) added : Set-WebSecurityProtocol
+        - Function (WEB) added : Set-WebSecurityProtocol 
+        - Function (WEB) added : Import-509Certificate
 #>
 
 #endregion
@@ -93,7 +94,7 @@ Function Get-DnsAddressList
             throw $_
         }
         
-        return = @()
+        return
     }
 }
 
@@ -213,92 +214,6 @@ Function Get-DNSDebugLog
     End
     {
     
-    }
-}
-
-
-Function Get-DnsMXQuery 
-{
-    param(
-        [parameter(Mandatory=$true)]
-    [string]$DomainName)
-
-    if (-not $Script:global_dnsquery) {
-        $Private:SourceCS = @'
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-
-namespace PM.Dns {
-  public class MXQuery {
-    [DllImport("dnsapi", EntryPoint="DnsQuery_W", CharSet=CharSet.Unicode, SetLastError=true, ExactSpelling=true)]
-    private static extern int DnsQuery(
-        [MarshalAs(UnmanagedType.VBByRefStr)]
-        ref string pszName, 
-        ushort     wType, 
-        uint       options, 
-        IntPtr     aipServers, 
-        ref IntPtr ppQueryResults, 
-        IntPtr pReserved);
-
-    [DllImport("dnsapi", CharSet=CharSet.Auto, SetLastError=true)]
-    private static extern void DnsRecordListFree(IntPtr pRecordList, int FreeType);
-
-    public static string[] Resolve(string domain)
-    {
-        if (Environment.OSVersion.Platform != PlatformID.Win32NT)
-            throw new NotSupportedException();
-
-        List<string> list = new List<string>();
-
-        IntPtr ptr1 = IntPtr.Zero;
-        IntPtr ptr2 = IntPtr.Zero;
-        int num1 = DnsQuery(ref domain, 15, 0, IntPtr.Zero, ref ptr1, IntPtr.Zero);
-        if (num1 != 0)
-            throw new Win32Exception(num1);
-        try {
-            MXRecord recMx;
-            for (ptr2 = ptr1; !ptr2.Equals(IntPtr.Zero); ptr2 = recMx.pNext) {
-                recMx = (MXRecord)Marshal.PtrToStructure(ptr2, typeof(MXRecord));
-                if (recMx.wType == 15)
-                    list.Add(Marshal.PtrToStringAuto(recMx.pNameExchange));
-            }
-        }
-        finally {
-            DnsRecordListFree(ptr1, 0);
-        }
-
-        return list.ToArray();
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MXRecord
-    {
-        public IntPtr pNext;
-        public string pName;
-        public short  wType;
-        public short  wDataLength;
-        public int    flags;
-        public int    dwTtl;
-        public int    dwReserved;
-        public IntPtr pNameExchange;
-        public short  wPreference;
-        public short  Pad;
-    }
-  }
-}
-'@
-
-        Add-Type -TypeDefinition $Private:SourceCS -ErrorAction Stop
-        $Script:global_dnsquery = $true
-    }
-
-    [PM.Dns.MXQuery]::Resolve($DomainName) | % {
-        $rec = New-Object PSObject
-        Add-Member -InputObject $rec -MemberType NoteProperty -Name "Host"        -Value $_
-        Add-Member -InputObject $rec -MemberType NoteProperty -Name "AddressList" -Value $(Get-DnsAddressList $_)
-        $rec
     }
 }
 
@@ -701,6 +616,69 @@ Function Set-WebSecurityProtocol
     {
         Get-WebSecurityProtocol
     }
+}
+
+
+Function Import-509Certificate 
+{    
+    Param
+    (
+        [Parameter(Mandatory=$true, Position=0, HelpMessage='Full path to certificate file')]
+        [ValidateScript({ Test-Path -Path $_ -PathType 'Leaf' })]
+        [ValidateNotNullOrEmpty()]
+        [Alias('Path')]
+        [String] $FilePath,
+        
+        # Object type: System.Security.Cryptography.X509Certificates.StoreLocation
+        [Parameter(Mandatory=$true, Position=1, HelpMessage='System or user?')]
+        [ValidateSet('LocalMachine','CurrentUser')]
+        [String] $StoreLocation = 'CurrentUser',
+        
+        # Object type: System.Security.Cryptography.X509Certificates.StoreName
+        [Parameter(Position=2, HelpMessage='Where should we store the certificate')]
+        [ValidateSet(
+                'AddressBook', 'AuthRoot', 'CertificateAuthority', 'Disallowed', 
+                'My', 'Root', 'TrustedPeople', 'TrustedPublisher')]
+        [String] $StoreName = 'My',
+        
+        [Parameter(Mandatory=$false, Position=3, HelpMessage='Password for certificate file')]
+        [Alias('Password')]
+        [String] $CertificatePassword = $null
+    )
+    
+    # Check if we can continue
+    [bool] $isAdmin = Test-AdminRights
+    
+    If ($isAdmin -eq $false -and $StoreLocation -eq 'LocalMachine')
+    {
+        # TODO: Use Invoke-Elevate to continue with the import
+        Write-Output "`nLocalMachine requires elevation!`n"
+        Return
+    }
+    
+    # Variables
+    $objFile = Get-Item -Path $FilePath
+    [String] $strFileName = $objFile.FullName
+    $pfx = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Certificate2
+    $store = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Store($StoreName,$StoreLocation)
+    
+    # Import the certificate
+    If ($CertificatePassword)
+    {
+        # Using default flags for now
+        $Flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
+        
+        $pfx.Import($strFileName,$CertificatePassword,$Flags)
+    }
+    Else
+    {
+        $pfx.import($strFileName)
+    }
+    
+    # Open the certificate store, add the cert to the store, and close it
+    $store.Open("MaxAllowed")
+    $store.Add($pfx)
+    $store.Close()
 }
 
 
