@@ -1,3 +1,5 @@
+#requires -Version 3.0
+
 <#
         .Synopsis
         Module with various network functions
@@ -33,6 +35,11 @@
         - Function (WEB) added : Get-WebSecurityProtocol
         - Function (WEB) added : Set-WebSecurityProtocol 
         - Function (WEB) added : Import-509Certificate
+
+        Version 0.4
+        - Function (DNS) added : Get-HostsFile : Pretty self explainatory
+        - Function (DNS) added : Add-HostsFileEntry : Offers elevation if not running as admin
+        - Function (DNS) added : Remove-HostsFileEntry : Elevation offered. Only IP arg for now. 
 #>
 
 #endregion
@@ -324,6 +331,134 @@ Function Clear-DnsCache
     {
         ipconfig /flushdns
     }
+}
+
+
+Function Get-HostsFile
+{
+    $strHostsFile = '{0}\System32\Drivers\etc\hosts' -f $env:SystemRoot
+    Get-Content -Path $strHostsFile -Encoding Ascii
+}
+
+
+Function Add-HostsFileEntry
+{
+    Param
+    (
+        [Parameter(Mandatory = $true, Position = 0,
+        HelpMessage = 'Name of the system to add')]
+        [Alias('System')]
+        [String] $HostName,
+        
+        [Parameter(Mandatory = $true, Position = 1,
+        HelpMessage = 'IP of the hostname to add')]
+        [ipaddress] $IP
+    )
+    
+    $boolIsAdmin = (Test-AdminRights)
+    $strHostsFile = '{0}\System32\Drivers\etc\hosts' -f $env:SystemRoot
+    
+    If (!$boolIsAdmin)
+    {
+        '{0} This command requires admin rights {0}' -f "`n"
+        
+        [String] $cmd = $MyInvocation.Line
+        
+        If ($cmd -clike ('* {0}*' -f '$'))
+        {
+            $msg = @'
+            {0}Unable to elevate when using variables as parameters!{0}
+Try again without variables, or use this function from and elevated prompt
+'@ -f "`n"
+
+            Write-Host -ForegroundColor Yellow $msg
+            Return
+        }
+        Else
+        {
+            $input = $(
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                [Microsoft.VisualBasic.Interaction]::MsgBox("Do you want to run this command elevated?", "YesNo", "Elevate?")
+            )
+            $answer = $input
+            
+            If ($answer -eq 'Yes')
+            {
+                Invoke-Elevate -Command $cmd
+            }
+        }
+        Return
+    }
+    
+    $objFile = Get-Content -Path $strHostsFile -Encoding Ascii
+    [int] $intLineCount = $objFile.Count -1
+    
+    # Check if the last line in the file is a blank line
+    [bool] $boolIsBlankLine = ($objFile[$intLineCount] -eq '')
+    
+    If (!$boolIsBlankLine)
+    {
+        "`n" | Out-File -Append -Encoding ascii -FilePath $strHostsFile
+    }
+    
+    "$IP`t$HostName" | Out-File -Append -Encoding ascii -FilePath $strHostsFile
+    
+    $?
+}
+
+
+Function Remove-HostsFileEntry
+{
+    Param
+    (
+        [Parameter(Mandatory = $true, Position = 1,
+        HelpMessage = 'IP of the hostname to remove')]
+        [ipaddress] $IP
+    )
+    
+    $boolIsAdmin = (Test-AdminRights)
+    $strHostsFile = '{0}\System32\Drivers\etc\hosts' -f $env:SystemRoot
+    
+    If (!$boolIsAdmin)
+    {
+        '{0} This command requires admin rights {0}' -f "`n"
+        
+        [String] $cmd = $MyInvocation.Line
+        
+        If ($cmd -clike ('* {0}*' -f '$'))
+        {
+            $msg = @'
+            {0}Unable to elevate when using variables as parameters!{0}
+Try again without variables, or use this function from and elevated prompt
+'@ -f "`n"
+
+            Write-Host -ForegroundColor Yellow $msg
+            Return
+        }
+        Else
+        {
+            $input = $(
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                [Microsoft.VisualBasic.Interaction]::MsgBox("Do you want to run this command elevated?", "YesNo", "Elevate?")
+            )
+            $answer = $input
+            
+            If ($answer -eq 'Yes')
+            {
+                Invoke-Elevate -Command $cmd
+            }
+        }
+        Return
+    }
+    
+    # Remove the entry
+    $objFile = Get-Content -Path $strHostsFile -Encoding Ascii | 
+    Where-Object {$_ -notmatch $IP.ToString()} 
+    
+    # Can't do a one-liner cause the file would be busy still
+    $objFile | Set-Content -Path $strHostsFile -Encoding Ascii -Force
+    
+    $?
 }
 
 
@@ -638,7 +773,7 @@ Function Import-509Certificate
         [Parameter(Position=2, HelpMessage='Where should we store the certificate')]
         [ValidateSet(
                 'AddressBook', 'AuthRoot', 'CertificateAuthority', 'Disallowed', 
-                'My', 'Root', 'TrustedPeople', 'TrustedPublisher')]
+        'My', 'Root', 'TrustedPeople', 'TrustedPublisher')]
         [String] $StoreName = 'My',
         
         [Parameter(Mandatory=$false, Position=3, HelpMessage='Password for certificate file')]
