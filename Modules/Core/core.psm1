@@ -423,6 +423,22 @@ Function ConvertTo-Hexadecimal
 }
 
 
+Function ConvertFrom-Hexadecimal 
+{ # Converts hexadecimal string to ASCII. 
+    Param
+    (
+        [String]$HexString
+    )
+    
+    # Variables
+    $Encoder = [System.Text.Encoding]::ASCII
+
+    [Byte[]] $strTemp = $HexString -Split ' '
+    
+    $Encoder.GetString($strTemp)
+}
+
+
 Function ConvertFrom-HexToFile 
 { # Converts hexadecimal string to file. 
     # PS > [byte[]] $hex = gc -encoding byte -path C:\path\to\file.exe
@@ -488,18 +504,18 @@ Function ConvertTo-Base36
     (
         [Parameter(valuefrompipeline=$true, 
         HelpMessage='Integer number to convert')]
-        [int] $DecNum = ''
+        [int] $DecNum
     )
     
     $alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    Do {
+    Do 
+    {
         $remainder = ($DecNum % 36)
         $char = $alphabet.substring($remainder,1)
         $base36Num = "$char$base36Num"
         $DecNum = ($DecNum - $remainder) / 36
     }
-    
     While ($DecNum -gt 0)
 
     $base36Num
@@ -828,7 +844,6 @@ Function Remove-SymLink
 }
 
 
-
 Function New-HardLink
 {
     <#
@@ -990,11 +1005,46 @@ Function Get-HardLink
 }
 
 
+Function ConvertFrom-DosToUnix
+{
+    <#
+            .Synopsis
+            Covert carriage returns to new line
+
+            .DESCRIPTION
+            Converts text files from DOS to Unix file new lines
+
+            .EXAMPLE
+            dox2unix .\test.txt
+
+            .EXAMPLE
+            ConvertFrom-DosToUnix -FilePath C:\Users\Me\Documents\MyFolderWithStuff\myDosFileWithText.txt
+    #>
+    
+    Param
+    (
+        [Parameter(Mandatory = $true, HelpMessage = 'Path to file', Position = 0)]
+        [ValidateScript({ Test-Path -Path $_ -PathType 'Leaf' })]
+        [String] $FilePath
+    )
+    
+    # get the full path to the file
+    $strFilePath = $(Get-ChildItem -Path $FilePath | ForEach-Object { $_.FullName })
+	
+    # get the contents of the file to convert 
+    $strTempContents = [IO.File]::ReadAllText($strFilePath) -replace "`r`n", "`n"
+	
+    # set the contents of the file 
+    [IO.File]::WriteAllText($strFilePath, $strTempContents)
+}
+
+
 
 New-Alias -Name npp -Value Open-NotepadPlusPlus -ErrorAction SilentlyContinue
 New-Alias -Name touch -Value Invoke-Touch -ErrorAction SilentlyContinue
 New-Alias -Name ln -Value New-SymLink -ErrorAction SilentlyContinue 
 New-Alias -Name Create-SymbolicLink -Value New-SymLink -ErrorAction SilentlyContinue
+New-Alias -Name dos2unix -Value ConvertFrom-DosToUnix -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -1666,7 +1716,7 @@ Function Invoke-CredentialManager
                 If ($ReturnCredObject)
                 {
                     $objCred = New-Object -TypeName PSCredential (
-                        $user,$($pass | ConvertTo-SecureString -AsPlainText -Force)
+                        $user,$encpassword
                     )
                     
                     $objCred
@@ -1696,6 +1746,9 @@ Function Invoke-CredentialManager
     {
         # Clean up the environment
         #Invoke-VariableBaseLine -Clean
+        Remove-Variable -Name pass -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        
+        [GC]::Collect()
     }
 }
 
@@ -1704,5 +1757,306 @@ New-Alias -Name elevate -Value Invoke-Elevate -ErrorAction SilentlyContinue
 New-Alias -Name sudo -Value Invoke-Elevate -ErrorAction SilentlyContinue
 New-Alias -Name Store-Credentials -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
 New-Alias -Name Get-Password -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
+
+#endregion
+
+
+#region : SYSTEM FUNCTIONS
+
+
+Function Get-InstalledSoftware
+{
+    <#
+            .Synopsis
+            Get installed software on the local or remote computer. 
+
+            .DESCRIPTION
+            Uses the uninstall path to capture installed software. This is safer than using the WMI query, which
+            checks the integrity upon query, and can often reconfigure, or reset application defaults. 
+
+            .EXAMPLE
+            $progs = Get-InstalledPrograms
+
+            .EXAMPLE
+            Get-InstalledPrograms |Select-Object -Property DisplayName, Publisher, InstallDate, Version |FT -Auto
+    #>
+
+    <#
+            Version 0.1
+            - Day one
+    #>
+
+    [CmdLetBinding()]
+    Param
+    (
+        [ValidateScript({ Test-Connection -ComputerName $_ -Quiet -Count 4 }) ]
+        [String] $ComputerName,
+        
+        [System.Management.Automation.Credential()][PSCredential] $Credential
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        #Invoke-VariableBaseLine
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+        
+        # List of required modules for this function
+        $arrayModulesNeeded = (
+            'Core'
+        )
+        
+        # Verify and load required modules
+        #Test-ModuleLoaded -RequiredModules $arrayModulesNeeded -Quiet
+    }
+    
+    Process
+    {
+        # Variables
+        [String] $strScriptBlock = 'Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        Invoke-DebugIt -Console -Message 'ScriptBlock' -Value $strScriptBlock
+    
+        IF ($ComputerName)
+        {
+            Invoke-DebugIt -Console -Message 'Computer name is present' -Value $ComputerName
+            
+            $strScriptBlock = '{' + $strScriptBlock + '}'
+            Invoke-DebugIt -Console -Message 'Scriptblock modified' -Value $strScriptBlock
+            
+            [String] $strCommand = 'Invoke-Command -ComputerName {0} -Command {1} -Authentication Kerberos' -f $ComputerName,$strScriptBlock
+            Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+        
+            IF ($Credential) 
+            { 
+                Invoke-DebugIt -Console -Message 'Credential is present' -Value $($Credential.UserName)
+                
+                $strCommand = $strCommand + ' -Credential $Credential' 
+                Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+            }
+        }
+    
+        Else
+        {
+            Invoke-DebugIt -Console -Value 'Local machine query' -Color 'Blue'
+            
+            $strCommand = $strScriptBlock
+            Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+        }
+    
+        $arrayPrograms = Invoke-Expression -Command $strCommand
+    
+        $arrayPrograms
+    }
+    
+    End
+    {
+        # Clean up the environment
+        #Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Get-USB 
+{
+    <#     
+            .Synopsis
+            Gets USB devices attached to the system
+
+            .Description
+            Uses WMI to get the USB Devices attached to the system
+
+            .Example
+            Get-USB
+
+            .Example
+            Get-USB | Group-Object Manufacturer  
+
+            .Notes
+            Thanks Lee Holmes
+    #>
+    
+    Get-WmiObject -Class Win32_USBControllerDevice | Foreach-Object { [Wmi]$_.Dependent }
+}
+
+
+Function Add-IPRemotingTrustedHost
+{
+    Param
+    (
+        [String[]] $TrustedHosts = '*',
+        
+        [Switch] $Append
+    )    
+    
+    $boolAdmin = Test-AdminRights
+    
+    $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
+    $arrayTrustedHosts = @()
+    
+    If ($Append -and $CurrentTrustedHosts -ne $null)
+    {
+        $arrayTrustedHosts += $CurrentTrustedHosts
+    }
+    
+    $arrayTrustedHosts += $TrustedHosts
+    
+    [String] $test = '"' + ($arrayTrustedHosts -join ',') + '"'
+    
+    [String] $strCommand = @"
+
+[bool] `$boolServiceRunning = ((Get-Service -Name WinRM).Status -eq "Running");
+        
+If (!`$boolServiceRunning)
+{
+    Start-Service -Name WinRM
+};
+        
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value $test -Force;
+
+"@
+        
+        
+    [ScriptBlock] $sbCommand = [ScriptBlock]::Create($strCommand)
+    
+    If (!$boolAdmin)
+    {
+        $strTitle = 'Run as Administrator'
+        $strMessage = 'This command requires administrative right. Wou you like to elevate?'
+        $yes = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes', `
+        'Elevate and run the command'
+
+        $no = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList '&No', `
+        'Cancel request'
+
+        $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+
+        $result = $host.ui.PromptForChoice($strTitle, $strMessage, $options, 0)
+
+        Switch ($result)
+        {
+            0 { Invoke-Elevate -ScriptBlock $sbCommand -Persist }
+            1 {'Exiting script'}
+        }
+    }
+    Else
+    {
+        $sbCommand.Invoke()
+    }
+}
+
+
+Function Get-IpRemotingTrustedHost
+{
+    $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
+    
+    $CurrentTrustedHosts
+}
+
+
+Function Clear-IECachedData 
+{
+    <#
+            .SYNOPSIS
+            Pretty easy to grasp... This function clears data cached by IE
+
+            .DESCRIPTION
+            Clears all, or selected cache data stored by IE
+
+            .PARAMETER TempIEFiles
+            Delete Temporary Internet Files
+
+            .PARAMETER Cookies
+            Delete Cookies
+
+            .PARAMETER History
+            Delete History
+
+            .PARAMETER FormData
+            Delete Form Data
+
+            .PARAMETER Passwords
+            Delete Passwords
+
+            .PARAMETER All
+            Delete All
+
+            .PARAMETER AddOnSettings
+            Delete Files and Settings Stored by Add-Ons
+
+            .EXAMPLE
+            Clear-IECachedData -TempIEFiles -Cookies -History -FormData -Passwords -All -AddOnSettings
+            Describe what this call does
+
+            .INPUTS
+            N/A
+
+            .OUTPUTS
+            N/A
+    #>
+
+
+    
+    [CmdletBinding(ConfirmImpact = 'None')]
+    Param
+    (
+        [Parameter(HelpMessage = ' Delete Temporary Internet Files')]
+        [switch] $TempIEFiles,
+        
+        [Parameter(HelpMessage = 'Delete Cookies')]
+        [switch] $Cookies,
+        
+        [Parameter(HelpMessage = 'Delete History')]
+        [switch] $History,
+        
+        [Parameter(HelpMessage = 'Delete Form Data')]
+        [switch] $FormData,
+        
+        [Parameter(HelpMessage = 'Delete Passwords')]
+        [switch] $Passwords,
+        
+        [Parameter(HelpMessage = 'Delete All')]
+        [switch] $All,
+        
+        [Parameter(HelpMessage = 'Delete Files and Settings Stored by Add-Ons')]
+        [switch] $AddOnSettings
+    )
+    
+    if ($TempIEFiles) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 8}
+    if ($Cookies) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 2}
+    if ($History) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 1}
+    if ($FormData) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 16}
+    if ($Passwords) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 32 }
+    if ($All) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 255}
+    if ($AddOnSettings) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 4351 }
+}
+
+
+Function Get-ComObject
+{
+    <#
+            .SYNOPSIS
+            Returns a list of COM objects
+
+            .DESCRIPTION
+            Returns a list of COM objects
+
+            .EXAMPLE
+            Get-ComObject
+            Returns a list of COM objects
+
+            .INPUTS
+            None
+
+            .OUTPUTS
+            List of string objects
+    #>
+	
+    Get-ChildItem -Path HKLM:\Software\Classes -ErrorAction SilentlyContinue | 
+    Where-Object {$_.PSChildName -match '^\w+\.\w+$' -and (Test-Path -Path ('{0}\CLSID' -f $_.PSPath))} | 
+    Select-Object -ExpandProperty PSChildName
+}
+
 
 #endregion
