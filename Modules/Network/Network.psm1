@@ -1,4 +1,4 @@
-#requires -Version 3.0
+#requires -Modules core, NetAdapter, NetTCPIP -Version 5.0
 
 <#
         .Synopsis
@@ -19,61 +19,6 @@
         .FUNCTIONALITY
         The functionality that best describes this cmdlet
 #>
-
-
-#region Verion Info
-
-<#
-        Version 0.1
-        - Day one
-
-        Version 0.2
-        - Function (WEB) Added : Get-WebCertificate
-        - Function (DNS) Changed : Added progress to the Get-DnsDebugLog 
-
-        Version 0.3
-        - Function (WEB) added : Get-WebSecurityProtocol
-        - Function (WEB) added : Set-WebSecurityProtocol 
-        - Function (WEB) added : Import-509Certificate
-
-        Version 0.4
-        - Function (DNS) added : Get-HostsFile : Pretty self explainatory
-        - Function (DNS) added : Add-HostsFileEntry : Offers elevation if not running as admin
-        - Function (DNS) added : Remove-HostsFileEntry : Elevation offered. Only IP arg for now. 
-#>
-
-#endregion
-
-
-#region Prerequisites
-
-# All modules require the core
-If (!(Get-Module -Name core))
-{
-    Try
-    {
-        Import-Module -Name 'core' -ErrorAction Stop
-    }
-
-    Catch
-    {
-        Try
-        {
-            $uriCoreModule = 'https://raw.githubusercontent.com/masters274/Posh_Repo/master/Modules/Core/core.psm1'
-    
-            $moduleCode = (Invoke-WebRequest -Uri $uriCoreModule -UseBasicParsing).Content
-            
-            Invoke-Expression -Command $moduleCode
-        }
-    
-        Catch
-        {
-            Write-Error -Message ('Failed to load {0}, due to missing core module' -f $PSScriptRoot)
-        }
-    }
-}
-
-#endregion
 
 
 #region Functions
@@ -732,7 +677,7 @@ Function Set-WebSecurityProtocol
         { 
             $strOperator = '+=' 
             
-            If ($currentProtocols -match $dictProtocols[$protocol]) 
+            If ($currentProtocols.ToString().Split(',').Trim() -contains $dictProtocols[$protocol]) 
             { $boolSkip = $true } Else { $boolSkip = $false }
         }
         
@@ -814,6 +759,106 @@ Function Import-509Certificate
     $store.Open("MaxAllowed")
     $store.Add($pfx)
     $store.Close()
+}
+
+
+Function Expand-Uri
+{
+    Param
+    (
+        [Parameter(Mandatory=$true, Position=0,
+        HelpMessage='Short URL to be expanded')]
+        [Alias('URL')]
+        [uri] $URI
+    )
+    
+    $retVal = Invoke-WebRequest -UseBasicParsing -Uri $URI -MaximumRedirection 0 -ErrorAction Ignore |
+    ForEach-Object {$_.Headers} | ForEach-Object {$_.Location}
+    
+    $retVal
+}
+
+
+New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
+
+
+### Network Functions ###
+
+
+Function Get-Netstat
+{
+    # TODO: Needs to be more efficient. Makes a call to get-process for each item. 
+    # TODO: Get netstat info from remote computers. Parameter -ComputerName as [String[]]
+    # Variables
+    $nets = $(netstat -aon).Trim() | 
+        Select-Object -Skip 4 | 
+        ConvertFrom-String -PropertyNames Protocol,LocalAddress,RemoteAddress,State,PID
+        
+    $nets = $nets | Where-Object { $_.State -match "ESTABLISHED|LISTENING"} |
+        Select-Object -Property Protocol,`
+    
+    @{ 
+        Name = 'LocalAddress' 
+        Expression = { 
+            if ($_.LocalAddress -notmatch ']') 
+            {
+                $_.LocalAddress.Split(':')[0] 
+            } 
+            Else 
+            {
+                $_.LocalAddress.Split(']')[0].Trim('[')
+            }
+        }
+    }, `
+    @{ 
+        Name = 'LocalPort' 
+        Expression = { 
+            if ($_.LocalAddress -match ']') 
+            { 
+                $_.LocalAddress.Split(']')[1].Trim(':') 
+            } 
+            Else 
+            { 
+                $_.LocalAddress.Split(':')[1] 
+            }
+        }
+    }, `
+    @{ 
+        Name = 'RemoteAddress' 
+        Expression = { 
+            if ($_.RemoteAddress -notmatch ']') 
+            {
+                $_.RemoteAddress.Split(':')[0] 
+            } 
+            Else 
+            {
+                $_.RemoteAddress.Split(']')[0].Trim('[')
+            }
+        }
+    }, `
+    @{ 
+        Name = 'RemotePort' 
+        Expression = { 
+            if ($_.RemoteAddress -match ']') 
+            { 
+                $_.RemoteAddress.Split(']')[1].Trim(':') 
+            } 
+            Else 
+            { 
+                $_.RemoteAddress.Split(':')[1] 
+            }
+        }
+    },`
+    State,`
+    PID,
+    @{ 
+        Name = 'Process' 
+        Expression = { 
+            Get-Process -ID $($_.PID ) | % ProcessName
+        }
+    }
+    
+    $nets
 }
 
 
