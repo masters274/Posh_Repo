@@ -12,7 +12,7 @@
 RootModule = 'Network.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.5'
+ModuleVersion = '0.6'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -69,13 +69,7 @@ RequiredModules = @('core')
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = 'Get-DnsAddressList', 'Get-DNSDebugLog', 'Get-DnsCache', 
-               'Clear-DnsCache', 'Get-HostsFile', 'Add-HostsFileEntry', 
-               'Remove-HostsFileEntry', 'ConvertTo-DottedDecimalIP', 
-               'ConvertTo-DecimalIP', 'ifconfig', 'Get-MyIpAddress', 
-               'Get-WebCertificate', 'Get-WebSecurityProtocol', 
-               'Set-WebSecurityProtocol', 'Import-509Certificate', 'Expand-Uri', 
-               'Get-Netstat'
+FunctionsToExport = '*'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = '*'
@@ -137,6 +131,9 @@ Version 0.5
 - Function (NET) added : Get-Netstat returns an object with established and listening port info
 - Module : changed : Removed the prerequisite installer of the core module. 
 - Module : changed : Module now requires PowerShell version 5.0
+
+Version 0.6
+- Function (NET) added : Send-WakeOnLan added
 '
 
         # External dependent modules of this module

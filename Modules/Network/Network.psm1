@@ -791,11 +791,11 @@ Function Get-Netstat
     # TODO: Get netstat info from remote computers. Parameter -ComputerName as [String[]]
     # Variables
     $nets = $(netstat -aon).Trim() | 
-        Select-Object -Skip 4 | 
-        ConvertFrom-String -PropertyNames Protocol,LocalAddress,RemoteAddress,State,PID
+    Select-Object -Skip 4 | 
+    ConvertFrom-String -PropertyNames Protocol,LocalAddress,RemoteAddress,State,PID
         
     $nets = $nets | Where-Object { $_.State -match "ESTABLISHED|LISTENING"} |
-        Select-Object -Property Protocol,`
+    Select-Object -Property Protocol,`
     
     @{ 
         Name = 'LocalAddress' 
@@ -859,6 +859,210 @@ Function Get-Netstat
     }
     
     $nets
+}
+
+
+Function Send-WakeOnLan
+{
+    <#
+            .SYNOPSIS
+            Function for waking up computers on the network
+
+            .DESCRIPTION
+            This function sends magic packets to wake up a shutdown computer, that has Wake On LAN configured. 
+
+            .PARAMETER broadcastAddress
+            The broadcast address is the top IP address in a subnet. e.x. if the IP of the computer you want to wake
+            up is 192.168.1.100 with a subnet mask of 255.255.255.0, the broadcast address would be 192.168.1.255
+
+            This parameter is not the IP of the destination computer. 
+
+            .PARAMETER macAddress
+            This would be the physical address of the computer you wish to wake up. e.x. 00-01-de-ad-b3-ef
+
+            .PARAMETER JumpServer
+            If you need to wake a computer on a network other than your own, and the network does not allow directed-
+            broadcast, you can wake up a computer on the routed network, via another computer on that same network. 
+
+            .PARAMETER Credential
+            This would be the credential uses to connect/execute commands on the jump server. 
+
+            .EXAMPLE
+            Send-WakeOnLan -BroadcastAddress 192.168.1.255 -MacAddress 00-01-de-ad-b3-ef -JumpServer Computer01 -Credential $creds
+            This will connect to Computer02, and run the wake on LAN command from there. It will attempt to wake
+            up the system with MAC address 00-01-de-ad-b3-ef on the same network
+
+
+            .EXAMPLE
+            Get-Content -Path .\list_of_macs.txt | Send-WakeOnLan -BroadcastAddress 192.168.1.255
+            This will process each mac, and attempt to wake them all up. 
+
+            .EXAMPLE
+            Send-WakeOnLan -BroadcastAddress 192.168.1.255 -MacAddress 00-01-de-ad-b3-ef
+            This will attempt to wake up a system with MAC address 00-01-de-ad-b3-ef
+
+            .EXAMPLE
+            '00-01-de-ad-b3-ef' | Send-WakeOnLan -BroadcastAddress 192.168.1.255
+            Wake up a single machine. Pipeline the MAC address only. 
+
+            .EXAMPLE
+            # Build a holder for hosts
+            $objOfHolding = @()
+
+            $objBuilder = New-Object PSObject
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'BroadcastAddress' -Value '192.168.1.255'
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'MacAddress' -Value '00-01-de-ad-b3-ef'
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'JumpServer' -Value 'Server01'
+
+            # Place in the holding object
+            $objOfHolding += $objBuilder
+
+            # Adding the next host
+            rv objBuilder
+            $objBuilder = New-Object psobject
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'BroadcastAddress' -Value '172.30.1.255'
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'MacAddress' -Value 'be-3f-02-03-de-ad'
+
+            # This object is on my local network, so I don't need a jump server. We will set this to null
+            $objBuilder | Add-Member -MemberType NoteProperty -Name 'JumpServer' -Value $null
+
+
+            # Place in the holding object
+            $objOfHolding += $objBuilder
+
+            # We now have a CSV that we'll maintain will all systems, from all locations. 
+            $objOfHolding | Export-Csv -Path '.\All_My_Systems.csv'  -NoTypeInformation -Encoding ASCII
+
+            # When all systems need to be woke up...
+
+            # Import our list of maintained systems. 
+            $csvFile = Import-Csv -Path '.\All_My_Systems.csv' -Encoding ASCII
+
+            # Now pipe the object to the wake up function
+            $csvFile | Send-WakeOnLan -Credential
+
+
+            This will wake multiple machines defined in a CSV file. 
+
+
+            .NOTES
+            Scalable WOL, without needing to make changes to your network. No "ip directed-broadcast" necessary :)
+
+            .LINK
+            N/A
+
+            .INPUTS
+            Accepts string input of MAC address from the pipeline. Will also accept an array object with MAC 
+            address, broadcast address, and jump server defined. 
+
+            .OUTPUTS
+            Void
+    #>
+
+
+    [CmdletBinding()]
+    param
+    (
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true, 
+        ValueFromPipelineByPropertyName = $true)] 
+        [ValidateNotNullorEmpty()] 
+        [ValidateScript({$_ -like '*-*-*-*-*-*'})] 
+        [Alias('ma')]
+        [String] $MacAddress,
+        
+        [Parameter(Mandatory = $true, Position = 1, ValueFromPipelineByPropertyName = $true)] 
+        [ValidateNotNullorEmpty()]
+        [Alias('bc')]
+        [IPAddress] $BroadcastAddress,
+        
+        [Parameter(Position = 2, ValueFromPipelineByPropertyName = $true)] 
+        [Alias('js')]
+        [String] $JumpServer,
+            
+        [System.Management.Automation.Credential()]
+        [PSCredential] $Credential
+    )
+    
+    Process
+    {
+        Write-Verbose -Message $BroadCastAddress
+        Write-Verbose -Message $MacAddress
+        
+        [ScriptBlock] $sbShaker = {
+            
+            Param
+            (
+                $BroadCastAddress,
+                $MacAddress
+            )
+
+            Try 
+            {
+                [void][System.Reflection.Assembly]::LoadWithPartialName('System.Net')
+                
+                [void][System.Reflection.Assembly]::LoadWithPartialName('System.Net.Sockets')
+
+                $NetUdpClient = New-Object System.Net.Sockets.UdpClient
+                $NetIpEndPoint = New-Object System.Net.IPEndPoint $([IPAddress]::Parse($BroadCastAddress)),10000
+            } 
+            Catch 
+            { 
+                Throw
+            }
+           
+
+            If ($NetUdpClient -and $NetIpEndPoint) 
+            {
+                Try
+                {
+                    [byte[]]$macBytes = $MacAddress.Split('-') | ForEach-Object { [byte]('0x{0}' -f $_) }
+                    [byte[]]$bytes = New-Object -TypeName 'byte[]' -ArgumentList $(6 + 16 * $($macBytes.length))
+
+                    for ($i = 0; $i -lt 6; $i++) 
+                    { 
+                        $bytes[$i] = [byte] 0xff 
+                    }
+
+                    for ($i = 6; $i -lt $bytes.length; $i += $macBytes.length) 
+                    {
+                        for($j = 0; $j -lt $macBytes.length; $j++) 
+                        { 
+                            $bytes[$i + $j] = $macBytes[$j] 
+                        } 
+                    }
+
+                    $NetUdpClient.Connect($NetIpEndPoint)
+
+                    [void]$NetUdpClient.Send($bytes, $bytes.length)
+
+                    $NetUdpClient.Close()
+                } 
+                Catch 
+                { 
+                    Throw 
+                }
+            }
+        }
+    
+        
+        If ($JumpServer)
+        {
+            If ($Credential)
+            {
+                Invoke-Command -ComputerName $JumpServer -Credential $Credential -Authentication Kerberos `
+                -ScriptBlock $sbShaker -ArgumentList $broadcastAddress,$macAddress -AsJob | Out-Null
+            }
+            Else
+            {
+                Invoke-Command -ComputerName $JumpServer -ScriptBlock $sbShaker `
+                -ArgumentList $broadcastAddress,$macAddress -AsJob | Out-Null
+            }
+        }        
+        Else
+        {
+            $sbShaker.Invoke( $broadcastAddress, $macAddress )
+        }
+    }
 }
 
 
