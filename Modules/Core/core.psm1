@@ -549,6 +549,33 @@ Function ConvertTo-Base64
 }
 
 
+Function Convert-ByteArrayToHex 
+{
+    Param 
+    (
+        $ByteArray
+    )
+
+    If ($ByteArray.GetType().Name -eq 'Byte[]')
+    {
+        [String] $Bytes = $ByteArray -Join ' '
+    }
+    Else
+    {
+        $Bytes = $ByteArray
+    }
+    
+    [String] $strReturnValue = $null 
+
+    ForEach ($Byte In $Bytes.ToString().Split(' ') ) 
+    {
+        $strReturnValue += '0x' + [Convert]::ToString($Byte,16).ToUpper().PadLeft(2,'0') + ','
+    }
+    
+    $($strReturnValue | % {"0x$_"}) -Replace "^0x|\,$",''
+}
+
+
 New-Alias -Name Add-Sig -Value Add-Signature -ErrorAction SilentlyContinue
 New-Alias -Name sign -Value Add-Signature -ErrorAction SilentlyContinue
 New-Alias -Name Set-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
@@ -569,7 +596,7 @@ Function Invoke-Touch
 {
     Param
     (
-        [Parameter(Mandatory=$true,Position=1,HelpMessage='File path')]
+        [Parameter(Mandatory=$true,Position=1,HelpMessage='File path',ValueFromPipeline=$true)]
         [String]$Path,
         
         [Switch]$Quiet
@@ -615,7 +642,6 @@ Function Invoke-Touch
                 New-Item -Force -ItemType $strType -Path "$strPath"
             }
         }
-        
     }
     
     End
@@ -1342,13 +1368,7 @@ Function Start-ImpersonateUser
     
     Begin
     {
-        # List of required modules for this function
-        $arrayModulesNeeded = (
-            'core'
-        )
-        
-        # Verify and load required modules
-        Test-ModuleLoaded -RequiredModules $arrayModulesNeeded -Quiet
+
     }
     
     Process
@@ -1527,6 +1547,12 @@ Function Get-LoggedOnUser
 
 Function Invoke-Elevate
 {
+    <#
+            TODO: 
+            - have output return to the main screen
+            - launch the elevated process with wscript to avoid UAC
+            - work out an elevated prompt, and all commands ran will use elevation until...
+    #>
     [CmdLetBinding()]
     [CmdletBinding(DefaultParameterSetName='Command')]
     Param
@@ -2056,6 +2082,62 @@ Function Get-ComObject
     Get-ChildItem -Path HKLM:\Software\Classes -ErrorAction SilentlyContinue | 
     Where-Object {$_.PSChildName -match '^\w+\.\w+$' -and (Test-Path -Path ('{0}\CLSID' -f $_.PSPath))} | 
     Select-Object -ExpandProperty PSChildName
+}
+
+
+
+Function Get-WindowsLicenseInfo
+{
+    <#
+            .Synopsis
+            Get the license status of a Windows computer
+
+            .DESCRIPTION
+            Gets the license details via SLMGR.vbs /dlv
+
+            .EXAMPLE
+            Get-WindowsLicenseInfo
+            Returns the license details of the local computer
+
+            .EXAMPLE
+            Get-WindowsLicenseInfo -ComputerName computer01.domain.com
+            Returns the license details of the computer
+    #>
+
+
+    Param
+    (
+        [String] $ComputerName,
+        
+        [PSCredential] $Credential
+    )
+    
+    Process
+    {
+        # Variables
+        [ScriptBlock] $sbLicInfo = {
+        
+            ((cscript $env:windir\System32\slmgr.vbs /dlv | Select-Object -Skip 4) -replace ': ','=') | 
+            ConvertFrom-StringData -ErrorAction SilentlyContinue
+        }
+        
+        If ($ComputerName)
+        {
+            If ($Credential)
+            {
+                Invoke-Command -ScriptBlock $sbLicInfo -ComputerName $ComputerName -Credential $Credential `
+                -Authentication Kerberos -ErrorAction SilentlyContinue
+            }
+            Else
+            {
+                Invoke-Command -ScriptBlock $sbLicInfo -ComputerName $ComputerName -ErrorAction SilentlyContinue
+            }
+        }
+        Else
+        {
+            . $sbLicInfo
+        }
+    }
 }
 
 

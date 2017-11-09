@@ -12,7 +12,7 @@
 RootModule = 'core.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.3'
+ModuleVersion = '1.4'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -107,7 +107,8 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'Version 0.3
+        ReleaseNotes = '
+Version 0.3
 - Code folding regions added for better navigation and visibility
 - Function (SECURITY) added : Test-AdminRights
 - Function (SECURITY) added : Start-ImpersonateUser
@@ -182,6 +183,13 @@ Version 1.3
 - Region (SYSTEM) : added : additional functions that fit well into the core module
 - Function (SYSTEM) : added : Get-InstalledSoftware, Get-USB, Add-IPRemotingTrustedHost, Get-IpRemotingTrustedHost,
     Clear-IECachedData, Get-ComObject
+
+Version 1.4
+- Function (FILESYSTEM) : changed : Invoke-Touch updated to accept value from pipeline. 
+- Function (DEVELOPMENT) : added : Convert-ByteArrayToHex. Needed when working with some registry values
+
+Version 1.5
+- Function (SYSTEM) : added : Get-WindowsLicenseInfo. Gets a summary of the slmgr output from local or remote.
 '
 
         # External dependent modules of this module
