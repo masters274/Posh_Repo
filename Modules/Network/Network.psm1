@@ -779,6 +779,144 @@ Function Expand-Uri
 }
 
 
+Function Get-Proxy
+{
+    $ProxySettings = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+    -Name DefaultConnectionSettings).DefaultConnectionSettings
+        
+    If ($ProxySettings[8] -eq 0x01)
+    {
+        $false
+    }
+    Else
+    {
+        $true
+    }
+}
+
+
+Function Enable-Proxy
+{    
+    $ProxySettings = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+    -Name DefaultConnectionSettings).DefaultConnectionSettings
+    
+    If ($ProxySettings[16] -ne '0x00')
+    {
+        # Appears there may be an auto-config URL
+        $ProxySettings[8] = 15 # = 0x0F
+    }
+    ElseIF ($ProxySettings[24] -ne '0x00')
+    {
+        # Looks like a manual proxy is set
+        $ProxySettings[8] = 13 # = 0x0D
+    }
+    Else
+    {
+        # Just enable auto-detect settings (a.k.a WPAD)
+        $ProxySettings[8] = 9 # = 0x09
+    }
+    
+    #$regVal = Convert-ByteArrayToHex -ByteArray $ProxySettings
+    $regVal = [Byte[]] $ProxySettings
+    
+    # Enable the proxy setting
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' `
+    -Name ProxyEnable -Value 1
+    
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+    -Name DefaultConnectionSettings -Value ([Byte[]]($regVal))
+}
+
+
+Function Disable-Proxy
+{
+    Param
+    (
+        [Switch] $ClearSettings
+    )
+    
+    If ($ClearSettings)
+    {
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+        -Name DefaultConnectionSettings `
+        -Value (
+            [byte[]](
+                0x46,0x00,0x00,0x00,0x2E,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                0x00,0x00,0x1C,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+            )
+        )
+    }
+    Else
+    {
+        $ProxySettings = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+        -Name DefaultConnectionSettings).DefaultConnectionSettings
+    
+        $ProxySettings[8] = 1
+    
+        #$regVal = Convert-ByteArrayToHex -ByteArray $ProxySettings
+        $regVal = [Byte[]] $ProxySettings
+        
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections' `
+        -Name DefaultConnectionSettings -Value ([Byte[]]($regVal))
+    }
+    
+    # Disable the proxy setting
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' `
+    -Name ProxyEnable -Value 0
+}
+
+
+Function Set-WebCertificatePolicy
+{
+    Param
+    (
+        [Switch] $IgnoreInvalidCertificate
+    )
+    
+    Try
+    {
+        Add-Type -TypeDefinition @'
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+
+public class InSecureWebPolicy : ICertificatePolicy 
+{
+    public bool CheckValidationResult(ServicePoint sPoint, X509Certificate cert,WebRequest wRequest, int certProb)
+    {
+        return true;
+    }
+}
+'@
+    }
+    Catch
+    {
+        Write-Error -Message 'Failed to load the insecure policy'
+    }
+    
+    
+    $pol = [System.Net.ServicePointManager]::CertificatePolicy
+    
+    # Policy reverts after closing your shell, so only process is needed. 
+    Invoke-EnvironmentalVariable -Name pol -Scope Process -Value $pol 
+    
+    If ($IgnoreInvalidCertificate)
+    {
+        [System.Net.ServicePointManager]::CertificatePolicy = New-Object -TypeName InSecureWebPolicy
+    }
+    ElseIf ($pol)
+    {
+        [System.Net.ServicePointManager]::CertificatePolicy = $pol
+    }
+    Else
+    {
+        'You do not seem to have a policy to revert to. Please close, and launch a new shell'
+    }
+}
+
+
 New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
 
 

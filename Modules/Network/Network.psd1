@@ -12,7 +12,7 @@
 RootModule = 'Network.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.6'
+ModuleVersion = '0.7.1'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -51,7 +51,9 @@ PowerShellVersion = '5.0'
 # ProcessorArchitecture = ''
 
 # Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @('core')
+RequiredModules = @(
+    @{ModuleName='core';Guid='7ffd438f-134c-49be-8000-9a9f3af1cbe3';RequiredVersion='1.4'}
+)
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
@@ -134,6 +136,17 @@ Version 0.5
 
 Version 0.6
 - Function (NET) added : Send-WakeOnLan added
+
+Version 0.7
+- Function (WEB) added : Disable-Proxy added. Disables IE proxy settings via registry keys. 
+- Function (WEB) added : Enable-Proxy added. Enables IE proxy settings via registry keys. 
+- Module : changed : now requires core version to be 1.4 or higher
+
+Version 0.7.1
+- Function (WEB) updated : Enable-Proxy now tries to figure out if you had proxy or auto URL configured
+
+Version 0.7.2
+-Function (WEB) added : Get-Proxy. Returns True or False based on the proxy status
 '
 
         # External dependent modules of this module
