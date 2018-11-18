@@ -1,40 +1,68 @@
 <#
-        Version 0.3
-        - Code folding regions added for better navigation and visibility
-        - Function (SECURITY) added : Test-AdminRights
-        - Function (SECURITY) added : Start-ImpersonateUser
-        - Function (SECURITY) added : Get-LoggedOnUser
-        - Function (SECURITY) added : Invoke-Elevate
-        - Function (FILESYSTEM) added : Open-Notepad++
-        - Multiple aliases added for functions
-        - EventLogging added to Invoke-DebugIt function
+        .Synopsis
+        Module that extends core functionality in powershell. 
 
-        Version 0.4
-        - Function (SECURITY) updated : Invoke-Elevate, "sudo $$" or "sudo $^" now works, similar to "sudo !!"
-        - Function (DEVELOPMENT) updated : Fixed scope issues with Invoke-VariableBaseLine
-        - Function (DEVELOPMENT) updated : $boolDebug must be set for -Debug to be recognized in other functions.
-
-        Version 0.5
-        - Function (FILESYSTEM) updated : As cool as it was, renamed Open-Notepad++ to Open-NotepadPlusPlus :(
-        - Function (FILESYSTEM) added : New alias created for Invoke-Touch = touch
-        - Function (SECURITY) added : Invoke-CredentailManager, with aliases
-        - Function (LOG/ALERT) updated : Removed the $boolDebug declaration from this function. This will be
-        set by the calling function, when -Debug is used. 
-        - Function (DEVELOPMENT) updated : Now allows you to add the file path to a module not in the default path.
+        .DESCRIPTION
+        Module with various generic functions that could be used in any script
         
-        Version 0.6
-        - Function (DEVELOPMENT) added : Invoke-EnvrionmentalVariable
-        - Function (DEVELOPMENT) added : Invoke-Alert with alias (alert). Audible tone for when you want to
-        monitor the availability of something while doing some other work. 
-        - Function (SECURITY) updated : Parameter alias on Invoke-CredentialManager for backward compatibility
-        - Function (DEVELOPMENT) added : ConvertTo-Hexadecimal
-        - Function (DEVELOPMENT) added : ConvertFrom-HexToFile. Great way for working with binary files.
-        - Function (DEVELOPMENT) added : ConvertTo-Base36
-        - Function (DEVELOPMENT) added : ConvertFrom-Base36
-        - Function (DEVELOPMENT) added : ConvertTo-Base64
-        - Function (DEVELOPMENT) added : ConvertFrom-Base64
+        .NOTES
+        Code reuse saves time!
+        
+        .COMPONENT
+        Core
+        
+        .ROLE
+        Fill gaps in general use
+        
+        .FUNCTIONALITY
+        General Powershell functionality extension
 
+        .AUTHOR
+        Chris Masters - https://github.com/masters274
 #>
+
+
+#region Custom Shared Types 
+
+$sbMkLinkType = {
+    <#
+            lpSymlinkFileName = [String] Path/name where you wan the link to be placed
+            lpTargetFileName = [String] File or folder path you want linked to
+            dwFlags = [int] 0 for file, and 1 for directory. Use logic to figure this out instead of asking
+    #>
+    
+    $typDef = @'
+        using System;
+        using System.Runtime.InteropServices;
+  
+        namespace mklink
+        {
+            public class symlink
+            {
+                [DllImport("kernel32.dll", EntryPoint="CreateSymbolicLink")]
+                public static extern bool CreateSymbolicLink(string lpSymlinkFileName, string lpTargetFileName, int dwFlags);
+                
+                [DllImport("kernel32.dll", EntryPoint="CreateHardLink")]
+                public static extern bool CreateHardLink(string lpSymlinkFileName, string lpTargetFileName, IntPtr lpSecurityAttributes);
+            }
+        }
+'@
+    Try 
+    {
+        $null = [mklink.symlink]
+    } 
+        
+    Catch 
+    {
+        Add-Type -TypeDefinition $typDef
+    }
+}
+
+
+& $sbMkLinkType
+
+#endregion
+
 
 #region : DEVELOPMENT FUNCTIONS 
 
@@ -193,6 +221,8 @@ Function Invoke-VariableBaseLine
     
     Process 
     {
+        # logger -Console -Force -Value $(($MyInvocation.Line).split(' ')[1]).Trim() 
+        
         if ($Clean) 
         {
             Compare-Object -ReferenceObject $($baselineLocalVariables.Name) -DifferenceObject `
@@ -235,14 +265,14 @@ Function Add-Signature
     Select-Object -First 1)
 
     # check if the file is a PowerShell file, if not, fix it... 
-    $srtExt = ( dir $File | 
-    ForEach-Object { $_.extension } )
+    $srtExt = ( Get-ChildItem -Path $File | 
+    ForEach-Object { $_.Extension } )
 
     IF ($srtExt -ne '.ps1') 
     {   # we want to be able to sign any file that we can write to... 
 
         # rename the file
-        dir $File | Rename-Item -NewName { $_.Name -replace "$srtExt$" ,".ps1" }
+        Get-ChildItem -Path $File | Rename-Item -NewName { $_.Name -replace "$srtExt$" ,".ps1" }
         
         # get the temporary file name
         $strTempName = [io.path]::ChangeExtension($File,"ps1")
@@ -251,7 +281,7 @@ Function Add-Signature
         Set-AuthenticodeSignature $strTempName $cert
         
         # change the file name back to the original
-        dir $strTempName | Rename-Item -NewName { $_.Name -replace ".ps1$" ,"$srtExt" }
+        Get-ChildItem -Path $strTempName | Rename-Item -NewName { $_.Name -replace ".ps1$" ,"$srtExt" }
     } 
     
     Else 
@@ -288,26 +318,26 @@ Function Invoke-EnvironmentalVariable
     Param
     (
         [Parameter(Mandatory=$true, Position=0,                
-            HelpMessage='Name of the variable')]
+        HelpMessage='Name of the variable')]
         [String] $Name,
         
         [Parameter(Position=1,
-            HelpMessage='Value of the variable')]
+        HelpMessage='Value of the variable')]
         $Value,
         
         [Parameter(Mandatory=$false, Position=2,
-            HelpMessage='Select the scope you require.')]
+        HelpMessage='Select the scope you require.')]
         [ValidateSet('Machine','User','Process')]
         [String]$Scope = 'User',
         
-        [ValidateSet('Get','Set','Remove')]
+        [ValidateSet('Get','Set','Remove','New')]
         [String]$Action = 'Get'
     )
     
     Begin
     {
         # Baseline our environment 
-        Invoke-VariableBaseLine
+        #Invoke-VariableBaseLine
 
         # Debugging for scripts
         [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
@@ -325,13 +355,19 @@ Function Invoke-EnvironmentalVariable
         Invoke-DebugIt -Message 'Admin?' -Value $boolIsAdmin -Console
         Invoke-DebugIt -Message 'first item in command pipe' -Value $MyInvocation.InvocationName -Console
         
-        IF ($Action -eq 'Set' -or `
+        IF (
+            $Action -eq 'Set' -or $Action -eq 'New' -or `
             $strFunctionCalledName -eq 'Set-EnvVar' -or `
-            $strFunctionCalledName -eq 'Set-EnvironmentalVariable')
+            $strFunctionCalledName -eq 'Set-EnvironmentalVariable' -or `
+            $strFunctionCalledName -eq 'New-EnvVar' -or `
+            $strFunctionCalledName -eq 'New-EnvironmentalVariable'
+        )
         {
+            $Action = 'Set' # setting casue the default is get, and messes with logic later. 
             IF ($Value)
             {
-                [String] $strCommand = '[Environment]::SetEnvironmentVariable($Name,$Value,$Scope)'
+                [String] $strCommand = '[Environment]::SetEnvironmentVariable("{0}","{1}","{2}")' -f `
+                $Name, $Value, $Scope
             }
             
             Else
@@ -341,9 +377,14 @@ Function Invoke-EnvironmentalVariable
             }
         }
         
-        ElseIF ($Action -eq 'Remove' -or $strFunctionCalledName -match 'Remove-Env')
+        ElseIF (
+            $Action -eq 'Remove' -or `
+            $strFunctionCalledName -match 'Remove-EnvVar' -or `
+            $strFunctionCalledName -match 'Remove-EnvironmentalVariable'
+        )
         {
-            [String] $strCommand = ''
+            $Action = 'Remove' # setting casue the default is Get, and messes with logic later. 
+            [String] $strCommand = 'Remove-Item -Path Env:\{0}' -f $Name
         }
         
         IF ($boolIsAdmin -or ($Scope -eq 'User' -or $Scope -eq 'Process' -or $Action -eq 'Get'))
@@ -353,65 +394,14 @@ Function Invoke-EnvironmentalVariable
             
         Else
         {
-            Invoke-Elevate -Command $strCommand
+            Invoke-Elevate -Command $strCommand -Persist
         }
     }
     
     End
     {
         # Clean up the environment
-        Invoke-VariableBaseLine -Clean
-    }
-}
-
-
-Function Invoke-Alert
-{
-    <#
-            .Synopsis
-            Audible tone that can be easily called when some event is triggered. 
-
-            .DESCRIPTION
-            Great for monitoring things in the background, when you need to be working on something else. 
-
-            .PARAMETER Duration
-            This is the count or duration in seconds that the tone will be generated. A value of zero will
-            beep until interrupted. Negative integers will beep only once. 
-
-            .EXAMPLE
-            The following will beep 3 times when the listed IP is reachable
-            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert
-
-            .EXAMPLE
-            The following will beep once the IP is reachable, until you close the window, or Ctrl+C
-            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert -c 0
-    #>
-
-    <#
-            Version 0.1
-            - Day one
-    #>
-
-    Param
-    (
-        [Parameter(Position=0)]
-        [Alias('Count','c','Number', 'n')]
-        [Int]$Duration = 3
-    )
-    
-    Process
-    {
-        # Variables
-        $i = 0
-    
-        Do
-        {
-            [console]::Beep(1000,700)
-            Start-Sleep -Seconds 1
-            
-            If ($Duration -gt 0) { $i++ }
-        }
-        While ($i -lt $Duration) 
+        #Invoke-VariableBaseLine -Clean
     }
 }
 
@@ -433,10 +423,26 @@ Function ConvertTo-Hexadecimal
 }
 
 
+Function ConvertFrom-Hexadecimal 
+{ # Converts hexadecimal string to ASCII. 
+    Param
+    (
+        [String]$HexString
+    )
+    
+    # Variables
+    $Encoder = [System.Text.Encoding]::ASCII
+
+    [Byte[]] $strTemp = $HexString -Split ' '
+    
+    $Encoder.GetString($strTemp)
+}
+
+
 Function ConvertFrom-HexToFile 
 { # Converts hexadecimal string to file. 
     # PS > [byte[]] $hex = gc -encoding byte -path C:\path\to\file.exe
-    # PS > [System.IO.File]::WriteAllLines(".\hexdump.txt", ([string]$hex))
+    # PS > [System.IO.File]::WriteAllBytes(".\hexdump.txt", ([string]$hex))
     
     Param
     (
@@ -451,9 +457,9 @@ Function ConvertFrom-HexToFile
     
     Try 
     {
-        $objDirectory = gci ($FilePath | Split-Path -Parent)
+        #$objDirectory = gci ($FilePath | Split-Path -Parent)
     
-        $strDirectory = $objDirectory[0].Parent.FullName
+        $strDirectory = (Get-Item -Path $($FilePath | Split-Path -Parent)).FullName
     }
     
     Catch
@@ -497,19 +503,19 @@ Function ConvertTo-Base36
     Param 
     (
         [Parameter(valuefrompipeline=$true, 
-            HelpMessage='Integer number to convert')]
-        [int] $DecNum = ''
+        HelpMessage='Integer number to convert')]
+        [int] $DecNum
     )
     
     $alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    Do {
+    Do 
+    {
         $remainder = ($DecNum % 36)
         $char = $alphabet.substring($remainder,1)
         $base36Num = "$char$base36Num"
         $DecNum = ($DecNum - $remainder) / 36
     }
-    
     While ($DecNum -gt 0)
 
     $base36Num
@@ -543,13 +549,42 @@ Function ConvertTo-Base64
 }
 
 
+Function Convert-ByteArrayToHex 
+{
+    Param 
+    (
+        $ByteArray
+    )
+
+    If ($ByteArray.GetType().Name -eq 'Byte[]')
+    {
+        [String] $Bytes = $ByteArray -Join ' '
+    }
+    Else
+    {
+        $Bytes = $ByteArray
+    }
+    
+    [String] $strReturnValue = $null 
+
+    ForEach ($Byte In $Bytes.ToString().Split(' ') ) 
+    {
+        $strReturnValue += '0x' + [Convert]::ToString($Byte,16).ToUpper().PadLeft(2,'0') + ','
+    }
+    
+    $($strReturnValue | % {"0x$_"}) -Replace "^0x|\,$",''
+}
+
+
 New-Alias -Name Add-Sig -Value Add-Signature -ErrorAction SilentlyContinue
 New-Alias -Name sign -Value Add-Signature -ErrorAction SilentlyContinue
 New-Alias -Name Set-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 New-Alias -Name Get-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 New-Alias -Name Set-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 New-Alias -Name Get-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
-New-Alias -Name Alert -Value Invoke-Alert -ErrorAction SilentlyContinue
+New-Alias -Name New-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Remove-EnvVar -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
+New-Alias -Name Remove-EnvironmentalVariable -Value Invoke-EnvironmentalVariable -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -561,11 +596,14 @@ Function Invoke-Touch
 {
     Param
     (
-        [Parameter(Mandatory=$true,Position=1,HelpMessage='File path')]
+        [Parameter(Mandatory=$true,Position=1,HelpMessage='File path',ValueFromPipeline=$true)]
         [String]$Path,
         
+        [Parameter(Position=2,HelpMessage='Force directory')]
+        [Switch] $Directory,
+        
         [Switch]$Quiet
-    ) 
+    )
     
     Begin
     {
@@ -577,7 +615,7 @@ Function Invoke-Touch
         $strPath = $Path
 
         # See if we can figure out if asking for file or directory
-        if ("$($strPath -replace '^\.')" -like '*.*') 
+        if ("$($strPath -replace '^\.')" -like '*.*' -and -not $Directory) 
         { 
             $strType = 'File'
         } 
@@ -607,7 +645,6 @@ Function Invoke-Touch
                 New-Item -Force -ItemType $strType -Path "$strPath"
             }
         }
-        
     }
     
     End
@@ -642,8 +679,401 @@ Function Open-NotepadPlusPlus
 }
 
 
+Function New-SymLink
+{
+    <#
+            .Synopsis
+            Creates symbolic links
+
+            .DESCRIPTION
+            This provides similar functionality to *nix ln command
+
+            .EXAMPLE
+            New-SymLnk -Link .\MyNewShortCut -Target '\\DataShareServer\MyShare'
+
+            .EXAMPLE
+            ln .\shortcut ..\FileIcantLiveWithOut.txt
+
+            .NOTES
+            This function requires elevation
+    #>
+
+    <#
+            Version 0.2
+            - Using DLL Import instead of calls to mklink.exe
+    #>
+
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Position = 0)]
+        [ValidateScript({ Split-Path $_ -Parent | Test-Path })]
+        [String] $Link,
+        
+        [Parameter(Position = 1)]
+        [ValidateScript({ Test-Path $_ })]
+        [String] $Target
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        #Invoke-VariableBaseLine
+        
+        # Stop on error action
+        $ErrorActionPreference = 'Stop'
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+        
+        # Check if this is an elevated prompt
+        [bool] $boolIsAdmin = $(Test-AdminRights)
+        
+        # Check that our DLL import exists
+        Try
+        {
+            $null = [mklink.symlink]
+        }
+        
+        Catch
+        {
+            Write-Error -Message '[mklink.symlink] type not loaded' 
+        }
+        
+        # Check if the link/file already exists.
+        IF (Test-Path -Path $Link)
+        {
+            Write-Error -Message ('{0} already exists!' -f $Link)
+        }
+    }
+    
+    Process
+    {
+    
+        <# 
+                If (Test-Path -PathType Container $Target)
+                {
+                $strCommand = "cmd /c mklink /d"
+                }
+    
+                Else
+                {
+                $strCommand = "cmd /c mklink"
+                }
+                Invoke-Expression -Command ('{0} {1} {2}' -f $strCommand, $Link, $Target)
+        #>
+        
+        # Variables 
+        $boolResult = $null
+        
+        $linkPath = Get-item -Path $(Split-Path -Path "$Link" -Parent)
+        IF ($linkPath -eq $null) { $linkPath = $PWD.Path + '\' + ($Link |Split-Path -Leaf) } 
+        Else {$linkPath = $linkPath.FullName + '\' + $($link | Split-Path -Leaf) }
+        
+        $TargetPath = "$((Get-Item -Path $Target).FullName)"
+        
+        If (Test-Path -PathType Container $Target)
+        {
+            [int] $dwFlag = 1
+            
+            [String] $dwType = 'Directory'
+        }
+    
+        Else
+        {
+            [int] $dwFlag = 0
+            
+            [String] $dwType = 'File'
+        }
+        
+        Invoke-DebugIt -Console -Message 'DW Type' -Value "$dwType"
+        
+        $strCommand = '$boolResult = [mklink.symlink]::CreateSymbolicLink("{0}","{1}",{2})' -f $linkPath,$TargetPath,$dwFlag
+        
+        IF ($boolIsAdmin)
+        {
+            Invoke-Expression -Command $strCommand
+        }
+        
+        Else 
+        {
+            # Ask if we should elevate...
+            Invoke-DebugIt -Console -Value 'This command requires elevation. Press "Y" to attempt elevation.' -Force
+            
+            $response = Read-Host -Prompt 'Continue (Y/N)?'
+            
+            IF ($response -eq 'Y')
+            {
+                $strRemoteCommand = @"
+Import-Module -name Core; 
+
+$($strCommand);
+
+IF (!`$boolResult)
+{
+    Invoke-DebugIt -Console -Message 'Status' -Value 'Failed to create link!' -Color 'Red' -Force
+}
+
+Else
+{
+    Invoke-DebugIt -Console -Message 'Success' -Value 'Link created successfully' -Color 'Green' -Force
+}
+"@
+                Invoke-Elevate -Command $strRemoteCommand -Persist
+            }
+            
+            Else
+            {
+                Invoke-DebugIt -Console -Value "Couldn't get it done, huh?" -Color 'Yellow' -Force 
+            }
+        }
+        
+    
+        
+        
+        IF ($boolResult = $false) 
+        {
+            Invoke-DebugIt -Console -Force -Message 'Failed' -Value 'Unable to create link!' -Color 'red'
+        }
+        
+        Else
+        {
+            Invoke-DebugIt -Console -Message 'Success' -Value $boolResult -Color 'Green'
+        }
+    }
+    
+    End
+    {
+        # Clean up the environment
+        #Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Remove-SymLink
+{
+    Param
+    (
+        [String] $Link
+    )
+    
+    If (Test-Path -PathType Leaf $Link)
+    {
+        $strCommand = "Remove-Item -Path $Link -Force"
+    }
+    
+    Else
+    {
+        $dir = Get-Item -Path $Link
+        $strCommand = '[System.IO.Directory]::Delete("{0}")' -f $dir
+        # Making a system.io call due to junction handling in < POSH 6
+    }
+
+    Invoke-Expression -Command ('{0}' -f $strCommand)
+}
+
+
+Function New-HardLink
+{
+    <#
+            .Synopsis
+            Creates a new hard link to a file.
+
+            .DESCRIPTION
+            Hard links are mappings, or system representation of a file in a single volume. 
+
+            .EXAMPLE
+            New-HardLink -Link "$PSModulesPath\MyPoshMod\MyPoshMod.psm1" -Target 'C:\Modueles\MyPoshMod.psm1'
+
+            .EXAMPLE
+            New-HardLink .\testfile.txt ..\test.txt
+
+            .NOTES
+            You cannot make a link to a folder in any drive/volume, or link to a file in another drive/volume.
+    #>
+
+    <#
+            Version 0.1
+            - Day one.
+    #>
+
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Mandatory = $true,Position = 0,
+        HelpMessage = 'New hard link to be created')]
+        [ValidateScript({ (!(Test-Path $_)) })]
+        [String] $Link,
+        
+        [Parameter(Mandatory = $true,Position = 1,
+        HelpMessage = 'Path to existing target file')]
+        [ValidateScript({ Test-Path $_})]
+        [String] $Target
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        #Invoke-VariableBaseLine
+        
+        # Set the error action preference
+        $ErrorActionPreference = 'Stop'
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+    }
+    
+    Process
+    {
+        # Variables
+        $strTargetPath = (Get-Item -Path $Target).FullName
+        $strLinkPath = Get-item -Path $(Split-Path -Path "$Link" -Parent)
+        
+        IF ($strLinkPath -eq $null) { $strLinkPath = $PWD.Path + '\' + ($Link |Split-Path -Leaf) } 
+        Else {$strLinkPath = $strLinkPath.FullName + '\' + $($link | Split-Path -Leaf) }
+        
+        $boolResult = [mklink.symlink]::CreateHardLink("$strLinkPath","$strTargetPath",0)
+        
+        IF ($boolResult) 
+        {
+            Invoke-DebugIt -Console -Message 'Success' `
+            -Value ('Hard link {0} created successfully' -f $strLinkPath) -Color 'Green'
+        }
+        
+        Else
+        {
+            Invoke-DebugIt -Console -Force -Message 'Failed' -Value 'Unable to create hard link!' -Color 'red'
+        }
+    }
+    
+    End
+    {
+        # Clean up the environment
+        #Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Get-HardLink 
+{
+    <#
+            .SYNOPSIS
+            List/find files with multiple hardlinks.
+
+            .DESCRIPTION
+            works well to find out if one of your hardlinks, created by New-HardLink, have been broken. 
+
+            .PARAMETER Path
+            Path to file which we would like to list hardlinks for
+
+            .EXAMPLE
+            Get-HardLink -Path C:\files\myFile.txt
+            Returns the count and list of hardlinks and boolean value of multiple links
+
+            .NOTES
+            Thanks to Greg Shields for this function.
+
+            .LINK
+            http://www.itninja.com/blog/user/greg_shields
+    #>
+
+
+
+    [CmdLetBinding()]
+    Param
+    (
+        [Parameter(Position=0,Mandatory=$True,HelpMessage="Enter a filename and path",
+        ValueFromPipeline=$True)]
+        $Path
+    )
+
+    Process 
+    {
+        #if a file is piped in get the full file name and path
+        if ($path.GetType().Name -eq "FileInfo") {
+            $filepath=$path.fullname
+        }
+        elseif ($path.GetType().Name -eq "DirectoryInfo") {
+            Write-verbose "Skipping folder $path"
+            return
+        }
+        else {
+            #otherwise assume it is a string
+            $filepath=$path
+        }
+    
+        #Verify path
+        Write-Verbose "Testing $filepath"
+        If (Test-Path $filepath) {
+            $links=fsutil hardlink list $filepath
+            $count=($links | Measure-Object).Count
+            If ($count -gt 1) {
+                #more than one hard link found
+                Write-Verbose "Found multiple links"
+                $Multiple=$True
+            }
+            else {
+                $Multiple=$False
+            }
+        
+            Write-Verbose "Creating custom object"
+        
+            New-Object -TypeName PSObject -Property @{
+                Path=$filePath
+                Links=$links
+                Count=$count
+                MultipleLinks=$Multiple
+            }
+        }
+        Else 
+        {
+            Write-Warning "Failed to find $filepath"
+        }
+    }
+
+}
+
+
+Function ConvertFrom-DosToUnix
+{
+    <#
+            .Synopsis
+            Covert carriage returns to new line
+
+            .DESCRIPTION
+            Converts text files from DOS to Unix file new lines
+
+            .EXAMPLE
+            dox2unix .\test.txt
+
+            .EXAMPLE
+            ConvertFrom-DosToUnix -FilePath C:\Users\Me\Documents\MyFolderWithStuff\myDosFileWithText.txt
+    #>
+    
+    Param
+    (
+        [Parameter(Mandatory = $true, HelpMessage = 'Path to file', Position = 0)]
+        [ValidateScript({ Test-Path -Path $_ -PathType 'Leaf' })]
+        [String] $FilePath
+    )
+    
+    # get the full path to the file
+    $strFilePath = $(Get-ChildItem -Path $FilePath | ForEach-Object { $_.FullName })
+	
+    # get the contents of the file to convert 
+    $strTempContents = [IO.File]::ReadAllText($strFilePath) -replace "`r`n", "`n"
+	
+    # set the contents of the file 
+    [IO.File]::WriteAllText($strFilePath, $strTempContents)
+}
+
+
+
 New-Alias -Name npp -Value Open-NotepadPlusPlus -ErrorAction SilentlyContinue
 New-Alias -Name touch -Value Invoke-Touch -ErrorAction SilentlyContinue
+New-Alias -Name ln -Value New-SymLink -ErrorAction SilentlyContinue 
+New-Alias -Name Create-SymbolicLink -Value New-SymLink -ErrorAction SilentlyContinue
+New-Alias -Name dos2unix -Value ConvertFrom-DosToUnix -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -796,7 +1226,7 @@ Function Invoke-DebugIt
         [String] $Logfile
     )
     
-    $ScriptVersion = '0.'
+    $ScriptVersion = '0.3'
     #[Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     
     If (!($Console -and $Logfile))
@@ -855,8 +1285,60 @@ Function Invoke-DebugIt
 }
 
 
+Function Invoke-Alert
+{
+    <#
+            .Synopsis
+            Audible tone that can be easily called when some event is triggered. 
+
+            .DESCRIPTION
+            Great for monitoring things in the background, when you need to be working on something else. 
+
+            .PARAMETER Duration
+            This is the count or duration in seconds that the tone will be generated. A value of zero will
+            beep until interrupted. Negative integers will beep only once. 
+
+            .EXAMPLE
+            The following will beep 3 times when the listed IP is reachable
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert
+
+            .EXAMPLE
+            The following will beep once the IP is reachable, until you close the window, or Ctrl+C
+            While (!(Test-Connection 8.8.8.8 -Q -C 1)) { sleep -s 1 }; Alert -c 0
+    #>
+
+    <#
+            Version 0.1
+            - Day one
+    #>
+
+    Param
+    (
+        [Parameter(Position=0)]
+        [Alias('Count','c','Number', 'n')]
+        [Int]$Duration = 3
+    )
+    
+    Process
+    {
+        # Variables
+        $i = 0
+    
+        Do
+        {
+            [console]::Beep(1000,700)
+            Start-Sleep -Seconds 1
+            
+            If ($Duration -gt 0) { $i++ }
+        }
+        While ($i -lt $Duration) 
+    }
+}
+
+
 New-Alias -Name logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
 New-Alias -Name Invoke-Logger -Value Invoke-DebugIt -ErrorAction SilentlyContinue
+New-Alias -Name Alert -Value Invoke-Alert -ErrorAction SilentlyContinue
 
 #endregion
 
@@ -889,20 +1371,14 @@ Function Start-ImpersonateUser
     
     Begin
     {
-        # List of required modules for this function
-        $arrayModulesNeeded = (
-            'core'
-        )
-        
-        # Verify and load required modules
-        Test-ModuleLoaded -RequiredModules $arrayModulesNeeded -Quiet
+
     }
     
     Process
     {
     
         # Variables 
-        [boolean] $boolHidden = $true
+        [bool] $boolHidden = $true
         [String] $strCommandExec = 'powershell'
         [String] $strCommand = "& { $ScriptBlock }"
         [String] $strEncodedCommand = [Convert]::ToBase64String($([System.Text.Encoding]::Unicode.GetBytes($strCommand)))
@@ -952,12 +1428,15 @@ Function Start-ImpersonateUser
             $xml | Set-Content -Encoding Ascii -Path $strTempFilePath -Force
             $ErrorActionPreference = 'Stop'
             
+            $s = New-CimSession -ComputerName $ComputerName -Credential $Credential
+            
+            
             $strCommandBaseCreate = 'SCHTASKS.exe /Create /TN $strJobName /XML $strTempFilePath /S $ComputerName'
             $strCommandBaseRun = 'SCHTASKS.exe /Run /TN $strJobName /S $ComputerName'
             $strCommandBaseDelete = 'SCHTASKS.exe /Delete /TN $strJobName /S $ComputerName /F'
             
             $strCommandCredential = (
-                '/U {0} /P {1}' -f $Credential.UserName, $Credential.GetNetworkCredential().Password
+                '/U {0} /P ''{1}''' -f $Credential.UserName, $Credential.GetNetworkCredential().Password
             )
             
             If ($Credential) 
@@ -973,7 +1452,6 @@ Function Start-ImpersonateUser
                 Invoke-Expression -Command ('{0}' -f $strCommandBaseRun)
                 Invoke-Expression -Command ('{0}' -f $strCommandBaseDelete)
             }
-             
         }
         
         Catch
@@ -984,7 +1462,7 @@ Function Start-ImpersonateUser
         Finally
         {
             Remove-Item -Path $strTempFilePath -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-            
+            Remove-CimSession -CimSession $s
         }
     }
     
@@ -1074,6 +1552,12 @@ Function Get-LoggedOnUser
 
 Function Invoke-Elevate
 {
+    <#
+            TODO: 
+            - have output return to the main screen
+            - launch the elevated process with wscript to avoid UAC
+            - work out an elevated prompt, and all commands ran will use elevation until...
+    #>
     [CmdLetBinding()]
     [CmdletBinding(DefaultParameterSetName='Command')]
     Param
@@ -1090,12 +1574,14 @@ Function Invoke-Elevate
         HelpMessage='Commands to be executed')]
         [String] $Command,
         
+        [Switch] $NoProfile,
+        
         [Switch] $Persist
     )
     
     Begin
     {
-        Invoke-VariableBaseLine
+        # Invoke-VariableBaseLine
         
         [Bool] $boolDebug = $PSBoundParameters.Debug.IsPresent
     }
@@ -1111,7 +1597,12 @@ Function Invoke-Elevate
         }
         
         [String] $strEncodedCommand = [Convert]::ToBase64String($([System.Text.Encoding]::Unicode.GetBytes($strCommand)))
-        [String] $strArguments = "-Nop -Exec ByPass -EncodedCommand $strEncodedCommand"
+        [String] $strArguments = "-Exec ByPass -EncodedCommand $strEncodedCommand"
+        
+        IF ($NoProfile)
+        {
+            $strArguments =+ ' -Nop'
+        }
         
         IF ($Persist)
         {
@@ -1123,7 +1614,7 @@ Function Invoke-Elevate
     
     End
     {
-        Invoke-VariableBaseLine -Clean
+        # Invoke-VariableBaseLine -Clean
     }
 }
 
@@ -1135,18 +1626,35 @@ Function Invoke-CredentialManager
             Function for managing credentials for storage
 
             .DESCRIPTION
-            Used to both store, and retreive a password from 
+            Used to both store, and retreive a password from an XML file
 
             .EXAMPLE
             Invoke-CredentailManager -FilePath .\MySshPassord.auth
+	
+            Gets (if exists) or stores credentials in .\MySshPassword.auth. Will prompt for credentials if the 
+            file does not exist. 
 
             .EXAMPLE
             Invoke-CredentailManager -FilePath .\MySshPassord.auth -Credentail $creds
+
+            Stores the credentials from object "$creds" into a file in the local directory
+
+            .EXAMPLE
+            $strCreds = Get-Password .\test.xml 
+			
+            PS C:\> $strCreds.Username
+            Me@myDomain.local
+
+            PS C:\> $strCreds.Password
+            VewySecwetPassw0rd!
     #>
 
     <#
-            Version 0.?
+            Version 0.2
             - ? MACD. Move, add, change, or delete details go here. ?
+            - Change : Added storing user name
+            - Change : Cred file format changed to XML
+            - Add    : Backward compat with older script calls
     #>
     
     [CmdLetBinding()]
@@ -1158,13 +1666,15 @@ Function Invoke-CredentialManager
         [string]$FilePath,
         
         [Parameter(Position=1)]
-        [PSCredential]$Credential
+        [PSCredential]$Credential,
+        
+        [Switch] $ReturnCredObject # Only for XML objects
     )
     
     Begin
     {
         # Baseline our environment 
-        Invoke-VariableBaseLine
+        #Invoke-VariableBaseLine
 
         # Global debugging for scripts
         $boolDebug = $PSBoundParameters.Debug.IsPresent
@@ -1174,7 +1684,9 @@ Function Invoke-CredentialManager
     {
         # Variables
         $CredentialsFile = $FilePath
-        
+		
+		
+		
         # Check to see if the file exists 
         IF (-not (Test-Path $credentialsfile))
         { 
@@ -1189,33 +1701,85 @@ Function Invoke-CredentialManager
                 $creds = Get-Credential 
             }
         
-            # Get the password part 
+            $userName = $creds.UserName
             $encpassword = $creds.password 
         
-            # Convert it from secure string and save it to the specified file 
-            $encpassword | ConvertFrom-SecureString | Set-Content $CredentialsFile
-        } 
+            # Create the file so we can get the full name
+            Invoke-Touch -Path $CredentialsFile -Quiet
+			
+            # Must have the full path to save the XML file 
+            $strOutputFile = (Get-Item -Path $CredentialsFile).FullName
+			
+            [xml] $credXml = @"
+<cred>
+	<uname>$($userName)</uname>
+	<pass>$($encpassword | ConvertFrom-SecureString)</pass>
+</cred>
+"@
+			
+            $credXml.Save($strOutputFile)
+        }
     
         Else 
-        { 
-            # If the file exists, get the content and convert it back to secure string 
-            $encpassword = Get-Content -Path $credentialsfile | ConvertTo-SecureString 
+        {
+            # Check if we're working with XML or old
+            Try
+            {
+                [xml] $xmlFile = Get-Content -Path $CredentialsFile
+                $boolXml = $true
+                $user = $xmlFile.cred.uname
+                $encpassword = $xmlFile.cred.pass | ConvertTo-SecureString
+            }
+		
+            Catch 
+            {
+                $encpassword = Get-Content -Path $credentialsfile | ConvertTo-SecureString
+            }
+			
+            # Use the Marshal classes to create a pointer to the secure string in memory 
+            $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($encpassword) 
+    
+            # Change the value at the pointer back to unicode (i.e. plaintext) 
+            $pass = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($ptr)  
+    
+            If ($boolXml) 
+            {
+                If ($ReturnCredObject)
+                {
+                    $objCred = New-Object -TypeName PSCredential (
+                        $user,$encpassword
+                    )
+                    
+                    $objCred
+                }
+                
+                Else
+                {
+                    # Build and object and return it. 
+                    $objBuilder = New-Object -TypeName PSObject
+                    $objBuilder | Add-Member -MemberType NoteProperty -Name 'Username' -Value $user
+                    $objBuilder | Add-Member -MemberType NoteProperty -Name 'Password' -Value $pass
+				
+                    $objBuilder
+                }
+            }
+			
+            Else
+            {
+                # Return the decrypted password 
+                $pass 
+            }
+            
         }
-     
-        # Use the Marshal classes to create a pointer to the secure string in memory 
-        $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($encpassword) 
-    
-        # Change the value at the pointer back to unicode (i.e. plaintext) 
-        $pass = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($ptr)  
-    
-        # Return the decrypted password 
-        $pass 
     }
     
     End
     {
         # Clean up the environment
-        Invoke-VariableBaseLine -Clean
+        #Invoke-VariableBaseLine -Clean
+        Remove-Variable -Name pass -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        
+        [GC]::Collect()
     }
 }
 
@@ -1224,5 +1788,382 @@ New-Alias -Name elevate -Value Invoke-Elevate -ErrorAction SilentlyContinue
 New-Alias -Name sudo -Value Invoke-Elevate -ErrorAction SilentlyContinue
 New-Alias -Name Store-Credentials -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
 New-Alias -Name Get-Password -Value Invoke-CredentialManager -ErrorAction SilentlyContinue
+
+#endregion
+
+
+#region : SYSTEM FUNCTIONS
+
+
+Function Get-InstalledSoftware
+{
+    <#
+            .Synopsis
+            Get installed software on the local or remote computer. 
+
+            .DESCRIPTION
+            Uses the uninstall path to capture installed software. This is safer than using the WMI query, which
+            checks the integrity upon query, and can often reconfigure, or reset application defaults. This 
+            function is built to scale, for quick inventory of software across your environment. 
+
+            .EXAMPLE
+            $progs = Get-InstalledPrograms
+
+            .EXAMPLE
+            Get-InstalledPrograms | Select-Object -Property DisplayName, Publisher, InstallDate, Version |FT -Auto
+
+            .EXAMPLE
+            $swInventory = Get-InstalledSoftware -ComputerName 'cmp1','cmp2',sys3' -Credential $creds | 
+            Group-Object -Property PSComputerName -AsHashTable -AsString; $swInventory['cmp1']
+            
+            This will return and object, with all listed computer's installed software. This makes it easy to 
+            inventory your computers, and verify them later (if you Expot-CliXml, and Compare-Object later). 
+            This can scale to very large networks
+    #>
+
+    [CmdLetBinding()]
+    Param
+    (
+        [ValidateScript({ Test-Connection -ComputerName $_ -Quiet -Count 4 }) ]
+        [String[]] $ComputerName,
+        
+        [System.Management.Automation.Credential()][PSCredential] $Credential
+    )
+    
+    Begin
+    {
+        # Baseline our environment 
+        #Invoke-VariableBaseLine
+
+        # Debugging for scripts
+        $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
+        
+        # List of required modules for this function
+        $arrayModulesNeeded = (
+            'Core'
+        )
+        
+        # Verify and load required modules
+        #Test-ModuleLoaded -RequiredModules $arrayModulesNeeded -Quiet
+    }
+    
+    Process
+    {
+        # Variables
+        [String] $strScriptBlock = 'Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        Invoke-DebugIt -Console -Message 'ScriptBlock' -Value $strScriptBlock
+    
+        IF ($ComputerName)
+        {
+            If ($ComputerName.Count -gt 1)
+            {
+                Invoke-DebugIt -Message '[INFO]' -Value ('Computer count: {0}' -f $ComputerName.Count)
+                [String] $ComputerName = $ComputerName -join ','
+                
+                Invoke-DebugIt -Message 'Computers' -Value $ComputerName
+            }
+            Else
+            {
+                Invoke-DebugIt -Message '[INFO]' -Value ('Computer count: {0}' -f $ComputerName.Count)
+                [String] $ComputerName = $ComputerName[0].ToString()
+            }
+            
+            Invoke-DebugIt -Console -Message 'Computer name is present' -Value $ComputerName
+            
+            $strScriptBlock = '{' + $strScriptBlock + '}'
+            Invoke-DebugIt -Console -Message 'Scriptblock modified' -Value $strScriptBlock
+            
+            [String] $strCommand = 'Invoke-Command -ComputerName {0} -Command {1} -Authentication Kerberos' -f $ComputerName,$strScriptBlock
+            Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+        
+            IF ($Credential) 
+            { 
+                Invoke-DebugIt -Console -Message 'Credential is present' -Value $($Credential.UserName)
+                
+                $strCommand = $strCommand + ' -Credential $Credential' 
+                Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+            }
+        }
+    
+        Else
+        {
+            Invoke-DebugIt -Console -Value 'Local machine query' -Color 'Blue'
+            
+            $strCommand = $strScriptBlock
+            Invoke-DebugIt -Console -Message 'String command' -Value $strCommand
+        }
+    
+        $arrayPrograms = Invoke-Expression -Command $strCommand
+    
+        $arrayPrograms
+    }
+    
+    End
+    {
+        # Clean up the environment
+        #Invoke-VariableBaseLine -Clean
+    }
+}
+
+
+Function Get-USB 
+{
+    <#     
+            .Synopsis
+            Gets USB devices attached to the system
+
+            .Description
+            Uses WMI to get the USB Devices attached to the system
+
+            .Example
+            Get-USB
+
+            .Example
+            Get-USB | Group-Object Manufacturer  
+
+            .Notes
+            Thanks Lee Holmes
+    #>
+    
+    Get-WmiObject -Class Win32_USBControllerDevice | Foreach-Object { [Wmi]$_.Dependent }
+}
+
+
+Function Add-IPRemotingTrustedHost
+{
+    Param
+    (
+        [String[]] $TrustedHosts = '*',
+        
+        [Switch] $Append
+    )    
+    
+    $boolAdmin = Test-AdminRights
+    
+    $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
+    $arrayTrustedHosts = @()
+    
+    If ($Append -and $CurrentTrustedHosts -ne '')
+    {
+        $arrayTrustedHosts += $CurrentTrustedHosts
+    }
+    
+    $arrayTrustedHosts += $TrustedHosts
+    
+    [String] $test = '"' + ($arrayTrustedHosts -join ',') + '"'
+    
+    [String] $strCommand = @"
+
+[bool] `$boolServiceRunning = ((Get-Service -Name WinRM).Status -eq "Running");
+        
+If (!`$boolServiceRunning)
+{
+    Start-Service -Name WinRM
+};
+        
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value $test -Force;
+
+"@
+        
+        
+    [ScriptBlock] $sbCommand = [ScriptBlock]::Create($strCommand)
+    
+    If (!$boolAdmin)
+    {
+        $strTitle = 'Run as Administrator'
+        $strMessage = 'This command requires administrative right. Wou you like to elevate?'
+        $yes = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList '&Yes', `
+        'Elevate and run the command'
+
+        $no = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList '&No', `
+        'Cancel request'
+
+        $options = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+
+        $result = $host.ui.PromptForChoice($strTitle, $strMessage, $options, 0)
+
+        Switch ($result)
+        {
+            0 { Invoke-Elevate -ScriptBlock $sbCommand }
+            1 {'Exiting script'}
+        }
+    }
+    Else
+    {
+        $sbCommand.Invoke()
+    }
+}
+
+
+Function Get-IpRemotingTrustedHost
+{
+    [CmdLetBinding()]
+    Param
+    ()
+    
+    $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
+    
+    $CurrentTrustedHosts
+}
+
+
+Function Clear-IECachedData 
+{
+    <#
+            .SYNOPSIS
+            Pretty easy to grasp... This function clears data cached by IE
+
+            .DESCRIPTION
+            Clears all, or selected cache data stored by IE
+
+            .PARAMETER TempIEFiles
+            Delete Temporary Internet Files
+
+            .PARAMETER Cookies
+            Delete Cookies
+
+            .PARAMETER History
+            Delete History
+
+            .PARAMETER FormData
+            Delete Form Data
+
+            .PARAMETER Passwords
+            Delete Passwords
+
+            .PARAMETER All
+            Delete All
+
+            .PARAMETER AddOnSettings
+            Delete Files and Settings Stored by Add-Ons
+
+            .EXAMPLE
+            Clear-IECachedData -TempIEFiles -Cookies -History -FormData -Passwords -All -AddOnSettings
+            Describe what this call does
+
+            .INPUTS
+            N/A
+
+            .OUTPUTS
+            N/A
+    #>
+
+
+    
+    [CmdletBinding(ConfirmImpact = 'None')]
+    Param
+    (
+        [Parameter(HelpMessage = ' Delete Temporary Internet Files')]
+        [switch] $TempIEFiles,
+        
+        [Parameter(HelpMessage = 'Delete Cookies')]
+        [switch] $Cookies,
+        
+        [Parameter(HelpMessage = 'Delete History')]
+        [switch] $History,
+        
+        [Parameter(HelpMessage = 'Delete Form Data')]
+        [switch] $FormData,
+        
+        [Parameter(HelpMessage = 'Delete Passwords')]
+        [switch] $Passwords,
+        
+        [Parameter(HelpMessage = 'Delete All')]
+        [switch] $All,
+        
+        [Parameter(HelpMessage = 'Delete Files and Settings Stored by Add-Ons')]
+        [switch] $AddOnSettings
+    )
+    
+    if ($TempIEFiles) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 8}
+    if ($Cookies) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 2}
+    if ($History) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 1}
+    if ($FormData) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 16}
+    if ($Passwords) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 32 }
+    if ($All) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 255}
+    if ($AddOnSettings) { & "$env:windir\system32\rundll32.exe" InetCpl.cpl, ClearMyTracksByProcess 4351 }
+}
+
+
+Function Get-ComObject
+{
+    <#
+            .SYNOPSIS
+            Returns a list of COM objects
+
+            .DESCRIPTION
+            Returns a list of COM objects
+
+            .EXAMPLE
+            Get-ComObject
+            Returns a list of COM objects
+
+            .INPUTS
+            None
+
+            .OUTPUTS
+            List of string objects
+    #>
+	
+    Get-ChildItem -Path HKLM:\Software\Classes -ErrorAction SilentlyContinue | 
+    Where-Object {$_.PSChildName -match '^\w+\.\w+$' -and (Test-Path -Path ('{0}\CLSID' -f $_.PSPath))} | 
+    Select-Object -ExpandProperty PSChildName
+}
+
+
+Function Get-WindowsLicenseInfo
+{
+    <#
+            .Synopsis
+            Get the license status of a Windows computer
+
+            .DESCRIPTION
+            Gets the license details via SLMGR.vbs /dlv
+
+            .EXAMPLE
+            Get-WindowsLicenseInfo
+            Returns the license details of the local computer
+
+            .EXAMPLE
+            Get-WindowsLicenseInfo -ComputerName computer01.domain.com
+            Returns the license details of the computer
+    #>
+
+
+    Param
+    (
+        [String] $ComputerName,
+        
+        [PSCredential] $Credential
+    )
+    
+    Process
+    {
+        # Variables
+        [ScriptBlock] $sbLicInfo = {
+        
+            ((cscript $env:windir\System32\slmgr.vbs /dlv | Select-Object -Skip 4) -replace ': ','=') | 
+            ConvertFrom-StringData -ErrorAction SilentlyContinue
+        }
+        
+        If ($ComputerName)
+        {
+            If ($Credential)
+            {
+                Invoke-Command -ScriptBlock $sbLicInfo -ComputerName $ComputerName -Credential $Credential `
+                -Authentication Kerberos -ErrorAction SilentlyContinue
+            }
+            Else
+            {
+                Invoke-Command -ScriptBlock $sbLicInfo -ComputerName $ComputerName -ErrorAction SilentlyContinue
+            }
+        }
+        Else
+        {
+            . $sbLicInfo
+        }
+    }
+}
+
 
 #endregion

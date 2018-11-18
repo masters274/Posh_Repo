@@ -1,4 +1,41 @@
-﻿
+﻿#requires -Version 3.0 -Modules core
+
+<#PSScriptInfo
+
+        .VERSION 0.2
+
+        .GUID 516711c1-bcf1-4e8a-ac7e-4cf33f16ff4b
+
+        .AUTHOR Chris Masters
+
+        .COMPANYNAME Chris Masters
+
+        .COPYRIGHT (c) 2016 Chris Masters. All rights reserved.
+
+        .TAGS system warranty dell support
+
+        .LICENSEURI 
+
+        .PROJECTURI https://www.powershellgallery.com/profiles/masters274/
+
+        .ICONURI 
+
+        .EXTERNALMODULEDEPENDENCIES core
+
+        .REQUIREDSCRIPTS 
+
+        .EXTERNALSCRIPTDEPENDENCIES 
+
+        .RELEASENOTES
+        11/14/2016:        
+                0.2 -   Fixed mapping issues for LOB & Description
+                    -   Added a switch param to use the sandbox environment. Default is production
+                    -   Reversed if statement
+
+        .PRIVATEDATA 
+
+#> 
+
 <#
         .SYNOPSIS
         Get warranty and support information about Dell systems.
@@ -15,7 +52,7 @@
         Requires that you have a valid API key from TechDirect for warranty lookup.
 
         .LINK
-        https://github.com/masters274/Powershell_Stuff/tree/master/Scripts/Inventory
+        https://github.com/masters274/
 
         .INPUTS
         Accepts a string value for API key and a string or array of strings for the ServiceTag parameter
@@ -24,35 +61,23 @@
         Provides PSObject with system information for each service tag. 
 #>
 
-<#
-        COMPLETE: Change output to PSObject as default - 11/11/2016
-
-        VERSION INFO:
-            
-            11/14/2016:        
-                0.2 -   Fixed mapping issues for LOB & Description
-                    -   Added a switch param to use the sandbox environment. Default is production
-                    -   Reversed if statement
-                  
-#>
-
 
 [CmdletBinding()]
 Param 
 (
-    [Parameter(Mandatory=$true,
+    [Parameter(Mandatory=$true,ValueFromPipeline=$true,
             HelpMessage='ServiceTag of Dell device',
-        Position=1)]
+        Position=0)]
     [Alias('st')]
     [String[]]$ServiceTag,
-
+    	
     [Parameter(Mandatory=$true,
-        HelpMessage='API key from Dell TechDirect',
-        Position=2)]
+            HelpMessage='API key from Dell TechDirect',
+        Position=1)]
     [Alias('ak','api')]
     [String]$ApiKey,
 
-    [Parameter(HelpMessage='Use Dell sandbox?')]
+    [Parameter(HelpMessage='Use Dell sandbox?', Position=2)]
     [Switch]$Dev
   
 )
@@ -62,25 +87,25 @@ Begin
     $scriptVersion = 'Dell Support Info Grabber version 0.2'
     
     Write-Output -InputObject $scriptVersion
-    # Check for requirements
-    Try 
-    {
-        Write-Debug -Message 'Checking for prerequisites'
-        Test-ModuleLoaded -RequiredModules ('core') -Quiet | Out-Null
-    }
-    Catch 
-    {
-        Write-Debug -Message 'If you made it here, you do not have the Core module available to check requirements'
-        Write-Error -Message 'Core module not loaded! Failed to test requirements.'
-    }
-    
-    # Get a baseline snapshot
-    Write-Debug -Message 'Creating a variable snapshot'
-    Invoke-VariableBaseLine
+	# Check for requirements
+	Try 
+	{
+		Write-Debug -Message 'Checking for prerequisites'
+		Test-ModuleLoaded -RequiredModules ('core') -Quiet | Out-Null
+	}
+	Catch 
+	{
+		Write-Debug -Message 'If you made it here, you do not have the Core module available to check requirements'
+		Write-Error -Message 'Core module not loaded! Failed to test requirements.'
+	}
 }
 
 Process 
 {
+
+    # Get a baseline snapshot
+    Write-Debug -Message 'Creating a variable snapshot'
+    
     Write-Debug -Message 'Processing the script...'
     # Variables
     if ($Dev) 
@@ -194,10 +219,9 @@ Process
                 '{0}' -f $(Get-Date -Date ($dtSupportEndDate) -UFormat '%Y-%m-%d')
             )
             
+            [int] $intDaysRemaining = $((New-TimeSpan -Start $(Get-Date) -End $dtSupportEndDate).Days)
             $objBuilder |
-             Add-Member -MemberType NoteProperty -Name 'DaysRemaining' -Value (
-                '{0}' -f $(New-TimeSpan -Start $(Get-Date) -End $dtSupportEndDate).Days
-            )
+             Add-Member -MemberType NoteProperty -Name 'DaysRemaining' -Value $intDaysRemaining
             
             If ( $(New-TimeSpan -Start $(Get-Date) -End $dtSupportEndDate).Days -lt 1 ) 
             {
@@ -219,12 +243,13 @@ Process
     
     }
     
-    Return $objReportData
+    $objReportData
+    
+    # Clean up the environment 
+    Write-Debug -Message 'Reverting local variables to snapshot'
 }
 
 End 
 {
-    # Clean up the environment 
-    Write-Debug -Message 'Reverting local variables to snapshot'
-    Invoke-VariableBaseLine -Clean
+    
 }

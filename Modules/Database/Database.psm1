@@ -13,21 +13,19 @@ function Connect-MsSqlDatabase
 { # Connects to a Microsoft SQL Server, and executes a query. 
     PARAM 
     (
-        [String]$Server,
+        [String] $Server,
         
         [Parameter(Mandatory=$true, ValueFromPipeLine=$true,
             HelpMessage='Database Name')]
-        [String] $Database = "Master",
+        [String] $Database,
         
-        [String]$Username,
+        [String] $Username,
         
-        [String]$Password,
+        [String] $Password,
         
-        [String]$Query = $(Throw 'How are you gonna run a SQL query, without the query..!'),
+        [String] $Query = $(Throw 'How are you gonna run a SQL query, without the query..!'),
         
-        [Switch]$Kerberos,
-        
-        [Switch]$Debug
+        [Switch] $Kerberos
     )
     
     # Variables:
@@ -42,7 +40,7 @@ function Connect-MsSqlDatabase
     {
         if ($Username -eq $Null -or $Password -eq $Null) 
         {
-            Write-Host -ForegroundColor Red "Username and Password must be set when not performing a Trusted (Kerberos) connection"
+            Write-Host "Username and Password must be set when not performing a Trusted (Kerberos) connection" -ForegroundColor Red
         } 
         
         else 
@@ -77,7 +75,7 @@ function Connect-MsSqlDatabase
     
     Catch 
     {
-        Write-Error -Message -ForegroundColor Red "Something went wrong while connecting to the database. Check your work!"
+        Write-Error -Message "Something went wrong while connecting to the database. Check your work!"
     }
 	
     # Clean up:
@@ -275,6 +273,14 @@ Function  New-TableFromPSObject
             .EXAMPLE
             $queryScript = New-TableFromPSObject -InputObject $sender -Database 'MyDB' -Table 'NewTableName'
             Connect-MsSqlDatabase -Server 'DBServer' -Database 'MyDB' -Kerberos -Query $queryScript
+
+            .EXAMPLE
+            Add some easy date information to our $sender 
+            
+            $senderWithDateKeys = $sender | Select-Object -Property Entity,Profile,Status,Date,`
+                @{Name='YearID'; Expression={ (Get-Date).Year }},`
+                @{Name='MonthID'; Expression={ (Get-Date).Month }},`
+                @{Name='DayID'; Expression={ 1 }}
     #>
     
     [CmdLetBinding()]
