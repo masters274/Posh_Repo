@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 #requires -Modules core -Version 5.0
+=======
+#requires -Modules core, NetAdapter, NetTCPIP -Version 5.0
+>>>>>>> origin/master
 
 <#
         .Synopsis
@@ -410,7 +414,11 @@ Try again without variables, or use this function from and elevated prompt
 ### IP Address Functions ####
 
 
+<<<<<<< HEAD
 Function ConvertTo-DottedDecimalIP ( [String] $IP ) 
+=======
+Function ConvertTo-DottedDecimalIP ( [String]$IP ) 
+>>>>>>> origin/master
 {
 
     Switch -RegEx ($IP) {
@@ -436,6 +444,7 @@ Function ConvertTo-DottedDecimalIP ( [String] $IP )
 }
 
 
+<<<<<<< HEAD
 Function Convert-SubnetMaskToCidr
 {
     Param
@@ -475,6 +484,8 @@ Function Convert-CidrToDottedSubnetMask
 }
 
 
+=======
+>>>>>>> origin/master
 Function ConvertTo-DecimalIP ( [String]$IP ) 
 {
 
@@ -487,6 +498,7 @@ Function ConvertTo-DecimalIP ( [String]$IP )
 }
 
 
+<<<<<<< HEAD
 If (Get-Module -ListAvailable -Name NetAdapter, NetTCPIP) 
 {
     Function ifconfig 
@@ -510,6 +522,30 @@ If (Get-Module -ListAvailable -Name NetAdapter, NetTCPIP)
 
         $arrayInterfaces 
     }
+=======
+Function ifconfig 
+{
+	
+    $arrayInterfaces = @()
+
+
+    Foreach ($adapter in $(Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Sort-Object -Property Name)) {
+        $strName = $adapter.Name
+        $strMac = $adapter.MacAddress
+        $strIP = $adapter | Get-NetIpAddress | ForEach-Object {$_.IPAddress
+        }
+		
+        $objBuilder = New-Object -TypeName PSObject
+        $objBuilder | Add-Member -Type NoteProperty -Name "Iface" -Value "$strName"
+        $objBuilder | Add-Member -Type NoteProperty -Name "MacAddress" -Value "$strMac"
+        $objBuilder | Add-Member -Type NoteProperty -Name "IP Address" -Value "$strIP"
+		
+        $arrayInterfaces += $objBuilder
+		
+    }
+
+    $arrayInterfaces 
+>>>>>>> origin/master
 }
 
 
@@ -585,7 +621,11 @@ Function Get-WebCertificate
     Begin
     {
         # Baseline our environment 
+<<<<<<< HEAD
         #Invoke-VariableBaseLine
+=======
+        Invoke-VariableBaseLine
+>>>>>>> origin/master
 
         # Debugging for scripts
         $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
@@ -670,7 +710,11 @@ Function Get-WebCertificate
     End
     {
         # Clean up the environment
+<<<<<<< HEAD
         #Invoke-VariableBaseLine -Clean
+=======
+        Invoke-VariableBaseLine -Clean
+>>>>>>> origin/master
     }
 }
 
@@ -957,6 +1001,7 @@ public class InSecureWebPolicy : ICertificatePolicy
 }
 
 
+<<<<<<< HEAD
 Function Test-CertificateAuthorityPlacement
 {
     Param
@@ -988,6 +1033,9 @@ Function Test-CertificateAuthorityPlacement
 
 New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
 New-Alias -Name Add-WebSecurityProtocol -Value Set-WebSecurityProtocol -ErrorAction SilentlyContinue
+=======
+New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
+>>>>>>> origin/master
 
 
 ### Network Functions ###

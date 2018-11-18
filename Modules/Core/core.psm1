@@ -1803,13 +1803,18 @@ Function Get-InstalledSoftware
 
             .DESCRIPTION
             Uses the uninstall path to capture installed software. This is safer than using the WMI query, which
+<<<<<<< HEAD
             checks the integrity upon query, and can often reconfigure, or reset application defaults. This 
             function is built to scale, for quick inventory of software across your environment. 
+=======
+            checks the integrity upon query, and can often reconfigure, or reset application defaults. 
+>>>>>>> origin/master
 
             .EXAMPLE
             $progs = Get-InstalledPrograms
 
             .EXAMPLE
+<<<<<<< HEAD
             Get-InstalledPrograms | Select-Object -Property DisplayName, Publisher, InstallDate, Version |FT -Auto
 
             .EXAMPLE
@@ -1819,13 +1824,25 @@ Function Get-InstalledSoftware
             This will return and object, with all listed computer's installed software. This makes it easy to 
             inventory your computers, and verify them later (if you Expot-CliXml, and Compare-Object later). 
             This can scale to very large networks
+=======
+            Get-InstalledPrograms |Select-Object -Property DisplayName, Publisher, InstallDate, Version |FT -Auto
+    #>
+
+    <#
+            Version 0.1
+            - Day one
+>>>>>>> origin/master
     #>
 
     [CmdLetBinding()]
     Param
     (
         [ValidateScript({ Test-Connection -ComputerName $_ -Quiet -Count 4 }) ]
+<<<<<<< HEAD
         [String[]] $ComputerName,
+=======
+        [String] $ComputerName,
+>>>>>>> origin/master
         
         [System.Management.Automation.Credential()][PSCredential] $Credential
     )
@@ -1855,6 +1872,7 @@ Function Get-InstalledSoftware
     
         IF ($ComputerName)
         {
+<<<<<<< HEAD
             If ($ComputerName.Count -gt 1)
             {
                 Invoke-DebugIt -Message '[INFO]' -Value ('Computer count: {0}' -f $ComputerName.Count)
@@ -1868,6 +1886,8 @@ Function Get-InstalledSoftware
                 [String] $ComputerName = $ComputerName[0].ToString()
             }
             
+=======
+>>>>>>> origin/master
             Invoke-DebugIt -Console -Message 'Computer name is present' -Value $ComputerName
             
             $strScriptBlock = '{' + $strScriptBlock + '}'
@@ -1943,7 +1963,11 @@ Function Add-IPRemotingTrustedHost
     $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
     $arrayTrustedHosts = @()
     
+<<<<<<< HEAD
     If ($Append -and $CurrentTrustedHosts -ne '')
+=======
+    If ($Append -and $CurrentTrustedHosts -ne $null)
+>>>>>>> origin/master
     {
         $arrayTrustedHosts += $CurrentTrustedHosts
     }
@@ -1984,7 +2008,11 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value $test -Force;
 
         Switch ($result)
         {
+<<<<<<< HEAD
             0 { Invoke-Elevate -ScriptBlock $sbCommand }
+=======
+            0 { Invoke-Elevate -ScriptBlock $sbCommand -Persist }
+>>>>>>> origin/master
             1 {'Exiting script'}
         }
     }
@@ -1997,10 +2025,13 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value $test -Force;
 
 Function Get-IpRemotingTrustedHost
 {
+<<<<<<< HEAD
     [CmdLetBinding()]
     Param
     ()
     
+=======
+>>>>>>> origin/master
     $CurrentTrustedHosts = (Get-Item -Path WSMan:\localhost\Client\TrustedHosts).Value
     
     $CurrentTrustedHosts
@@ -2111,6 +2142,10 @@ Function Get-ComObject
 }
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/master
 Function Get-WindowsLicenseInfo
 {
     <#

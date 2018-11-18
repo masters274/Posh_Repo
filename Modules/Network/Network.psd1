@@ -12,7 +12,11 @@
 RootModule = 'Network.psm1'
 
 # Version number of this module.
+<<<<<<< HEAD
 ModuleVersion = '0.8'
+=======
+ModuleVersion = '0.7.1'
+>>>>>>> origin/master
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -146,11 +150,15 @@ Version 0.7.1
 - Function (WEB) updated : Enable-Proxy now tries to figure out if you had proxy or auto URL configured
 
 Version 0.7.2
+<<<<<<< HEAD
 - Function (WEB) added : Get-Proxy. Returns True or False based on the proxy status
 
 Version 0.8
 - Module updated : Changed the requires statement to not include NetAdapter or NetTCPIP. This way it will work with
 older operating systems. This will only exclude one function (ifconfig). 
+=======
+-Function (WEB) added : Get-Proxy. Returns True or False based on the proxy status
+>>>>>>> origin/master
 '
 
         # External dependent modules of this module
