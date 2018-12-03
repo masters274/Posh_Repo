@@ -12,11 +12,7 @@
 RootModule = 'Network.psm1'
 
 # Version number of this module.
-<<<<<<< HEAD
-ModuleVersion = '0.8'
-=======
-ModuleVersion = '0.7.1'
->>>>>>> origin/master
+ModuleVersion = '0.9.1'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -56,14 +52,14 @@ PowerShellVersion = '5.0'
 
 # Modules that must be imported into the global environment prior to importing this module
 RequiredModules = @(
-    @{ModuleName='core';Guid='7ffd438f-134c-49be-8000-9a9f3af1cbe3';RequiredVersion='1.4'}
+    @{ModuleName='core';Guid='7ffd438f-134c-49be-8000-9a9f3af1cbe3';ModuleVersion='1.4'}
 )
 
 # Assemblies that must be loaded prior to importing this module
 # RequiredAssemblies = @()
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-# ScriptsToProcess = @()
+ScriptsToProcess = @('ADNetwork.ps1')
 
 # Type files (.ps1xml) to be loaded when importing this module
 # TypesToProcess = @()
@@ -93,7 +89,7 @@ AliasesToExport = '*'
 # ModuleList = @()
 
 # List of all files packaged with this module
-# FileList = @()
+FileList = @('Network.psm1','Network.psd1','ADNetwork.ps1')
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{
@@ -101,7 +97,7 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @('Network','DNS','web','IP','Address','ifconfig','netstat','cert','certificate')
+        Tags = @('Network','DNS','web','IP','Address','ifconfig','netstat','cert','certificate','DHCP')
 
         # A URL to the license for this module.
         LicenseUri = 'https://github.com/masters274/Posh_Repo/blob/master/LICENSE'
@@ -150,15 +146,21 @@ Version 0.7.1
 - Function (WEB) updated : Enable-Proxy now tries to figure out if you had proxy or auto URL configured
 
 Version 0.7.2
-<<<<<<< HEAD
 - Function (WEB) added : Get-Proxy. Returns True or False based on the proxy status
 
 Version 0.8
 - Module updated : Changed the requires statement to not include NetAdapter or NetTCPIP. This way it will work with
 older operating systems. This will only exclude one function (ifconfig). 
-=======
--Function (WEB) added : Get-Proxy. Returns True or False based on the proxy status
->>>>>>> origin/master
+
+Version 0.9
+- Module updated : Cheanged the RequiredVersion, to ModuleVersion
+- Function (DNS) : added : Get-DNSScavengeRecord returns records to be scavenged on DNS servers, if you enable it.
+
+Version 0.9.1
+- Function (DNS) : added : Invoke-DNSManualCleanUp. Just could not wait to add this one in, thus ver 0.9.!
+
+Version 0.9.2
+- Function (DNS) : updated : Invoke-DNSManualCleanUp. Added parameter RRType, just in case you wanna clean PTRs
 '
 
         # External dependent modules of this module

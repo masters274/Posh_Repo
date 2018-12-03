@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-#requires -Modules core -Version 5.0
-=======
-#requires -Modules core, NetAdapter, NetTCPIP -Version 5.0
->>>>>>> origin/master
+#requires -Version 5.0
+#requires -Modules @{ModuleName='core'; ModuleVersion='1.4'}
 
 <#
         .Synopsis
@@ -411,14 +408,247 @@ Try again without variables, or use this function from and elevated prompt
 }
 
 
+Function Get-DNSScavengeRecord
+{
+    <#
+            .SYNOPSIS
+            This will search the supplied DNS zone, and display records that will be scavenged
+
+            .DESCRIPTION
+            This script can help you visualize which records will be scavenged if you enable scavenging on the DNS 
+            server. Reminder: you must enable scavenging on the zone, and the server before it will start cleaning 
+            your DNS. This script helps you to turn it on... many times admins don't turn this on till there's an 
+            obvious problem. Turning this on could delete important records that are not static. 
+
+            .PARAMETER ComputerName
+            This should be the Windows DNS server that you plan to query
+
+            .PARAMETER Domain
+            This will be the zone name you wish to query. This will accept an array of zones. 
+
+            .PARAMETER Age
+            Sets the age in the filter query. You'll only want to see records that would be considered expired.
+
+            .PARAMETER Credential
+            Credentials that will allow you to query WMI on the DNS server
+
+            .EXAMPLE
+            Get-DNSScavengeRecord -ComputerName dc01 -Domain contoso.com -Age 20 -Credential $myCred
+            Will return expired records from dc01 in the contoso.com DNS zone
+
+            .EXAMPLE
+            Get-DNSScavengeRecord -ComputerName dc01 -Domain contoso.com -Age 20 -Credential $myCred | FL *
+            Will return expired records from dc01 in the contoso.com DNS zone, and show all properties
+
+            .NOTES
+            This command limits the properties returned to keep it clean. To see all properties available, you can 
+            pipe to Format-List -Properties *, or to Get-Member
+
+            .LINK
+            https://www.powershellgallery.com/packages/Network
+
+            .INPUTS
+            You can pipe an array of strings to this function
+
+            .OUTPUTS
+            Array of objects returned. Default property display is limited. 
+    #>
+
+
+    Param
+    (
+        [Parameter(Mandatory=$true, HelpMessage='DNS server to connect to')]
+        [String] $ComputerName,
+        
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true, HelpMessage='DNS zone to search')]
+        [String[]] $Domain,
+        
+        [Int] $Age = 14, # Default config: refresh=7 & no-refresh=7
+        
+        [Parameter(Mandatory=$true, HelpMessage='Credentials for administering the DNS server')]
+        [System.Management.Automation.Credential()]
+        [PSCredential] $Credential
+    )
+    
+    Begin
+    {
+        # Constants
+        $dtExpireAge = $Age
+        $dtBeginTime = [Int] (New-TimeSpan `
+            -Start $(Get-Date -Date ('01/01/1601 00:00')) `
+        -End $((Get-Date).AddDays(-$dtExpireAge))).TotalHours  
+        
+        # Pretty messy if we display everything... will keep it simple
+        [String[]] $defaultDisplaySet = 'OwnerName','IPAddress', 'Date'
+        $defaultDisplayPropertySet = New-Object -TypeName System.Management.Automation.PSPropertySet -ArgumentList (
+            'DefaultDisplayPropertySet',[string[]] $defaultDisplaySet
+        )
+        $PSStandardMembers = [System.Management.Automation.PSMemberInfo[]]@($defaultDisplayPropertySet)
+    }
+    
+    Process
+    {
+        # Variables 
+        $objRecords = @()
+        
+        Foreach ($zone in $Domain)
+        {
+            $objRecords += Get-WmiObject -Credential $Credential -ComputerName $ComputerName `
+            -Namespace 'root\MicrosoftDNS' `
+            -Query ("select * from MicrosoftDNS_AType where Containername='{0}' AND TimeStamp<{1} AND TimeStamp<>0 " -f $zone, $dtBeginTime)  
+        }
+   
+        # Adding a readable date to each record for ease of use  
+        $objRecords | Foreach-Object { 
+            
+            Add-Member -InputObject $_ -MemberType NoteProperty -Name 'Date' `
+            -Value $(([DateTime]'1.1.1601').AddHours($_.Timestamp)) 
+            
+            Add-Member -InputObject $_ -MemberType MemberSet -Name PSStandardMembers -Value $PSStandardMembers
+        } 
+        
+        $objRecords
+    }
+    
+    End
+    {}
+}
+
+
+Function Invoke-DNSManualCleanUp
+{
+    <#
+            .SYNOPSIS
+            Clean up a scope when waiting for scavenging takes too long!
+
+            .DESCRIPTION
+            Scavenging is not aggressive, and takes forever to get things done... This does not.
+
+            .PARAMETER ComputerName
+            DNS server with the zone in it
+
+            .PARAMETER ZoneName
+            Domain/Zone name to be cleaned up
+
+            .PARAMETER Age
+            How many days since the last timestamp. If older than that, DELETE!
+
+            .PARAMETER Credential
+            Credentials for connecting and managing DNS, on the DNS server
+
+            .PARAMETER Force
+            You'll be asked to confirm each record deletion. If you don't want to be bothered with checking, use 
+            this parameter
+
+            .EXAMPLE
+            Invoke-DNSManualCleanUp -ComputerName dc01 -ZoneName contoso.com -Age 90 -Credential $MyCreds -Force
+            This will connect to dc01, query the contoso.com DNS zone for records that have not been updated 
+            within the last 90 days, and it will delete all returned values without prompting
+
+            .NOTES
+            Be careful with this one... DNS is the life blood of your domain/network. This function can ruin your
+            day
+
+            .LINK
+            https://www.powershellgallery.com/packages/Network
+
+            .INPUTS
+            Accepts an array of strings from the pipeline
+
+            .OUTPUTS
+            Nothing if all goes well, errors if not...
+    #>
+
+
+    Param
+    (
+        [Parameter(Mandatory=$true, HelpMessage='Name of computer to manage')]
+        [String] $ComputerName,
+        
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true, HelpMessage='DNS zone to search')]
+        [String[]] $ZoneName,
+        
+        [ValidateSet('HInfo','Afsdb','Atma','Isdn','Key','Mb','Md','Mf','Mg','MInfo','Mr','Mx','NsNxt','Rp','Rt',
+                'Wks','X25','A','AAAA','CName','Ptr','Srv','Txt','Wins','WinsR','Ns','Soa','NasP','NasPtr','DName',
+                'Gpos','Loc','DhcId','Naptr','RRSig','DnsKey','DS','NSec','NSec3','NSec3Param'
+        )]
+        [String] $RRType = 'A',
+        
+        [Int] $Age = 90,
+        
+        [Parameter(Mandatory=$true, HelpMessage='Credentials for administering DNS')]
+        [System.Management.Automation.Credential()]
+        [PSCredential] $Credential,
+        
+        [Switch] $Force
+    )
+    
+    Begin
+    {
+        # Functions
+        Function Script:Where-NotSystem
+        {
+            Param
+            (
+                [Object]
+                [Parameter(Mandatory=$true, ValueFromPipeline=$true, HelpMessage="Data to filter")]
+                $InputObject
+            )
+            process
+            {
+                if ($InputObject.TimeStamp -lt $t -And $InputObject.HostName -NotMatch '^gc.|dnszone|\@' -And $InputObject.TimeStamp -ne $null)
+                {
+                    $InputObject
+                }
+            }
+        }
+
+        # Constants
+        $t = ([DateTime]::Now).AddDays(-$Age) 
+        $s = New-CimSession -ComputerName $ComputerName -Credential $Credential
+        
+        If ($Force)
+        {
+            # We'll need to set the back to the original settings in case the clean up is ran again
+            $PSDefaultParameterValuesOrig = $PSDefaultParameterValues
+            
+            $PSDefaultParameterValues += @{
+                'Remove-DnsServerResourceRecord:Force' = $True
+            }
+        }
+    }
+    
+    Process
+    {
+        # Variables 
+        $records = @()
+        
+        Foreach ($Zone in $ZoneName)
+        {
+            $records += Get-DnsServerResourceRecord -ZoneName $Zone -RRType $RRType -CimSession $s | 
+            Where-NotSystem
+            
+            $records | Remove-DnsServerResourceRecord -ZoneName $Zone
+        }
+    }
+    
+    End
+    {
+        Remove-CimSession -CimSession $s -ErrorAction SilentlyContinue 
+        
+        If ($Force)
+        {
+            $PSDefaultParameterValues = $PSDefaultParameterValuesOrig
+        }
+    }
+}
+
+
+
 ### IP Address Functions ####
 
 
-<<<<<<< HEAD
 Function ConvertTo-DottedDecimalIP ( [String] $IP ) 
-=======
-Function ConvertTo-DottedDecimalIP ( [String]$IP ) 
->>>>>>> origin/master
 {
 
     Switch -RegEx ($IP) {
@@ -444,7 +674,6 @@ Function ConvertTo-DottedDecimalIP ( [String]$IP )
 }
 
 
-<<<<<<< HEAD
 Function Convert-SubnetMaskToCidr
 {
     Param
@@ -484,8 +713,6 @@ Function Convert-CidrToDottedSubnetMask
 }
 
 
-=======
->>>>>>> origin/master
 Function ConvertTo-DecimalIP ( [String]$IP ) 
 {
 
@@ -498,7 +725,6 @@ Function ConvertTo-DecimalIP ( [String]$IP )
 }
 
 
-<<<<<<< HEAD
 If (Get-Module -ListAvailable -Name NetAdapter, NetTCPIP) 
 {
     Function ifconfig 
@@ -522,30 +748,6 @@ If (Get-Module -ListAvailable -Name NetAdapter, NetTCPIP)
 
         $arrayInterfaces 
     }
-=======
-Function ifconfig 
-{
-	
-    $arrayInterfaces = @()
-
-
-    Foreach ($adapter in $(Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Sort-Object -Property Name)) {
-        $strName = $adapter.Name
-        $strMac = $adapter.MacAddress
-        $strIP = $adapter | Get-NetIpAddress | ForEach-Object {$_.IPAddress
-        }
-		
-        $objBuilder = New-Object -TypeName PSObject
-        $objBuilder | Add-Member -Type NoteProperty -Name "Iface" -Value "$strName"
-        $objBuilder | Add-Member -Type NoteProperty -Name "MacAddress" -Value "$strMac"
-        $objBuilder | Add-Member -Type NoteProperty -Name "IP Address" -Value "$strIP"
-		
-        $arrayInterfaces += $objBuilder
-		
-    }
-
-    $arrayInterfaces 
->>>>>>> origin/master
 }
 
 
@@ -621,11 +823,7 @@ Function Get-WebCertificate
     Begin
     {
         # Baseline our environment 
-<<<<<<< HEAD
         #Invoke-VariableBaseLine
-=======
-        Invoke-VariableBaseLine
->>>>>>> origin/master
 
         # Debugging for scripts
         $Script:boolDebug = $PSBoundParameters.Debug.IsPresent
@@ -710,11 +908,7 @@ Function Get-WebCertificate
     End
     {
         # Clean up the environment
-<<<<<<< HEAD
         #Invoke-VariableBaseLine -Clean
-=======
-        Invoke-VariableBaseLine -Clean
->>>>>>> origin/master
     }
 }
 
@@ -1001,7 +1195,6 @@ public class InSecureWebPolicy : ICertificatePolicy
 }
 
 
-<<<<<<< HEAD
 Function Test-CertificateAuthorityPlacement
 {
     Param
@@ -1033,9 +1226,6 @@ Function Test-CertificateAuthorityPlacement
 
 New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
 New-Alias -Name Add-WebSecurityProtocol -Value Set-WebSecurityProtocol -ErrorAction SilentlyContinue
-=======
-New-Alias -Name Expand-Url -Value Expand-Uri -ErrorAction SilentlyContinue
->>>>>>> origin/master
 
 
 ### Network Functions ###
