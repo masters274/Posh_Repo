@@ -2,7 +2,7 @@
 
 <#PSScriptInfo
 
-        .VERSION 0.2
+        .VERSION 0.3
 
         .GUID 516711c1-bcf1-4e8a-ac7e-4cf33f16ff4b
 
@@ -12,7 +12,7 @@
 
         .COPYRIGHT (c) 2016 Chris Masters. All rights reserved.
 
-        .TAGS system warranty dell support
+        .TAGS system warranty dell support techdirect servicetag expressservicecode
 
         .LICENSEURI 
 
@@ -31,9 +31,11 @@
                 0.2 -   Fixed mapping issues for LOB & Description
                     -   Added a switch param to use the sandbox environment. Default is production
                     -   Reversed if statement
+                0.3 -   Added link to get your TechDirect account setup, and request a key
 
         .PRIVATEDATA 
-
+        Setup your TechDirect account, and request your API key from 
+        https://techdirect.dell.com/portal/AboutAPIs.aspx
 #> 
 
 <#
@@ -53,6 +55,7 @@
 
         .LINK
         https://github.com/masters274/
+        https://techdirect.dell.com/portal/AboutAPIs.aspx
 
         .INPUTS
         Accepts a string value for API key and a string or array of strings for the ServiceTag parameter
